@@ -10,33 +10,33 @@
 
 ## Milestone 2: Commit List
 
-- [ ] Render commit rows in a scrollable table/list
-- [ ] Columns: graph, refs, message, author, date
-- [ ] Show branch labels `[master]` `[origin/master]` on commits
-- [ ] Show tag labels `<v1.0.0>` on commits
-- [ ] Click a row to select it
-- [ ] Parse `--all` flag to show all branches vs current branch
+- [x] Render commit rows in a scrollable table/list
+- [x] Columns: graph, refs, message, author, date
+- [x] Show branch labels `[master]` `[origin/master]` on commits
+- [x] Show tag labels `<v1.0.0>` on commits
+- [x] Click a row to select it
+- [x] Parse `--all` flag to show all branches vs current branch
 
 ## Milestone 3: Diff View
 
-- [ ] Bottom pane: show selected commit details
-- [ ] Display full commit SHA (clickable to copy)
-- [ ] Left side: commit message header + diff body
-- [ ] Right side: list of affected files
-- [ ] Clicking a file in the list jumps to that file in the diff
+- [x] Bottom pane: show selected commit details
+- [x] Display full commit SHA (clickable to copy)
+- [x] Left side: commit message header + diff body
+- [x] Right side: list of affected files
+- [x] Clicking a file in the list jumps to that file in the diff
 
 ## Milestone 4: Graph Rendering
 
-- [ ] Parse parent SHAs to build commit graph
-- [ ] Assign graph columns to commits
-- [ ] Draw vertical lines and merge/branch connectors
-- [ ] Color-code graph lanes
+- [x] Parse parent SHAs to build commit graph
+- [x] Assign graph columns to commits
+- [x] Draw vertical lines and merge/branch connectors
+- [x] Color-code graph lanes
 
 ## Milestone 5: File History Mode
 
-- [ ] Accept file/directory path as CLI arg
-- [ ] Run `git log -- <path>` instead of full log
-- [ ] Show filtered commit list for that path
+- [x] Accept file/directory path as CLI arg
+- [x] Run `git log -- <path>` instead of full log
+- [x] Show filtered commit list for that path
 
 ## Milestone 6: Branch Operations (Context Menu)
 
@@ -53,11 +53,11 @@
 
 ## Milestone 7: Polish
 
-- [ ] Click commit SHA to copy to clipboard
+- [x] Click commit SHA to copy to clipboard
 - [ ] Keyboard navigation (up/down in commit list)
 - [ ] Handle repos with no commits gracefully
 - [ ] Handle non-repo directories gracefully (error message)
-- [ ] Window title shows repo name and current branch
+- [x] Window title shows repo name and current branch
 - [ ] Performance: lazy loading / pagination for large repos
 
 ---

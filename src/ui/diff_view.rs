@@ -1,3 +1,4 @@
+use egui::scroll_area::ScrollSource;
 use egui::{self, Color32, RichText, ScrollArea, Ui};
 
 /// Renders the diff view pane (bottom-left).
@@ -20,6 +21,11 @@ pub fn show(ui: &mut Ui, diff_text: &str, scroll_to_file: &mut Option<String>) {
     ScrollArea::both()
         .id_salt("diff_scroll")
         .auto_shrink([false, false])
+        .scroll_source(ScrollSource {
+            scroll_bar: true,
+            drag: false,
+            mouse_wheel: true,
+        })
         .show(ui, |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
 

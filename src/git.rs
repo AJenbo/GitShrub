@@ -5,9 +5,8 @@ use std::process::Command;
 #[derive(Debug, Clone)]
 pub struct Commit {
     pub full_sha: String,
-    #[expect(dead_code, reason = "reserved for Milestone 4: Graph Rendering")]
+    #[expect(dead_code, reason = "reserved for future use in commit list display")]
     pub short_sha: String,
-    #[expect(dead_code, reason = "reserved for Milestone 4: Graph Rendering")]
     pub parents: Vec<String>,
     pub author_name: String,
     pub author_email: String,

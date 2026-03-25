@@ -30,14 +30,48 @@ pub fn show(ui: &mut egui::Ui, files: &[String], selected_file: Option<usize>) -
                     return;
                 }
 
+                let available_width = ui.available_width();
+                let row_height = ui.text_style_height(&egui::TextStyle::Monospace) + 4.0;
+
                 for (i, path) in files.iter().enumerate() {
                     let is_selected = selected_file == Some(i);
 
-                    let text = format_file_path(path, is_selected);
-                    let button = egui::Button::new(text).frame(false).selected(is_selected);
+                    let response = ui.horizontal(|ui| {
+                        // Disable selectable labels so clicks pass through text
+                        // to the row's interaction rect instead of being consumed.
+                        ui.style_mut().interaction.selectable_labels = false;
+                        ui.set_min_width(available_width);
+                        ui.set_height(row_height);
 
-                    if ui.add(button).clicked() {
+                        let text = format_file_path(path, is_selected);
+                        ui.label(text);
+                    });
+
+                    // Place an invisible click-sensing rect over the entire row.
+                    let row_rect = response.response.rect;
+                    let row_id = ui.id().with(("file_row", i));
+                    let row_response = ui.interact(row_rect, row_id, egui::Sense::click());
+
+                    if row_response.clicked() {
                         clicked = Some(i);
+                    }
+
+                    // Highlight selected row.
+                    if is_selected {
+                        ui.painter().rect_filled(
+                            row_rect,
+                            2.0,
+                            egui::Color32::from_rgba_premultiplied(60, 80, 120, 80),
+                        );
+                    }
+
+                    // Hover highlight.
+                    if row_response.hovered() && !is_selected {
+                        ui.painter().rect_filled(
+                            row_rect,
+                            2.0,
+                            egui::Color32::from_rgba_premultiplied(50, 50, 70, 40),
+                        );
                     }
                 }
             });

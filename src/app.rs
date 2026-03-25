@@ -1,4 +1,5 @@
 use crate::git::{self, Commit, DiffOutput};
+use crate::graph::{self, GraphRow};
 use crate::ui;
 
 /// Main application state.
@@ -26,6 +27,9 @@ pub struct App {
 
     /// File to scroll to in the diff view when user clicks a file in the file list.
     pub scroll_to_file: Option<String>,
+
+    /// Computed graph layout rows, one per commit (same order as `commits`).
+    pub graph_rows: Vec<GraphRow>,
 
     /// Current branch name.
     pub current_branch: String,
@@ -56,6 +60,7 @@ impl App {
             diff: None,
             selected_file_index: None,
             scroll_to_file: None,
+            graph_rows: Vec::new(),
             current_branch,
             repo_name,
             status_message: None,
@@ -69,6 +74,7 @@ impl App {
     pub fn refresh_commits(&mut self) {
         match git::load_commits(&self.repo_path, self.show_all, self.path_filter.as_deref()) {
             Ok(commits) => {
+                self.graph_rows = graph::compute_graph(&commits);
                 self.commits = commits;
                 self.status_message = None;
             }
@@ -80,6 +86,7 @@ impl App {
         self.diff = None;
         self.selected_file_index = None;
         self.scroll_to_file = None;
+        // graph_rows is already recomputed above when commits load successfully.
     }
 
     /// Select a commit by index and load its diff.
@@ -125,6 +132,11 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Ctrl+Q to quit.
+        if ctx.input(|i| i.key_pressed(egui::Key::Q) && i.modifiers.command) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+
         // Update window title
         let title = self.window_title();
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));

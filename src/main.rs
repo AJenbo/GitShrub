@@ -3,6 +3,7 @@ use std::process;
 
 mod app;
 mod git;
+mod graph;
 mod ui;
 
 fn main() -> eframe::Result<()> {
