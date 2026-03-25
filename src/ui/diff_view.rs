@@ -22,7 +22,12 @@ pub fn show(ui: &mut Ui, lines: &[String], scroll_to_line: &mut Option<usize>) {
     }
 
     let text_height = ui.text_style_height(&egui::TextStyle::Monospace);
-    let row_height = text_height + 2.0;
+    let item_spacing_y = ui.spacing().item_spacing.y;
+    // show_rows() expects the row height WITHOUT spacing — it adds
+    // item_spacing.y internally. The actual step between row tops
+    // (used for scroll offset math) is text_height + item_spacing.y.
+    let row_height_sans_spacing = text_height;
+    let row_step = text_height + item_spacing_y;
     let num_lines = lines.len();
 
     let mut scroll_area = ScrollArea::both()
@@ -36,11 +41,11 @@ pub fn show(ui: &mut Ui, lines: &[String], scroll_to_line: &mut Option<usize>) {
 
     // If a scroll-to-line request is pending, set the vertical offset directly.
     if let Some(target_line) = scroll_to_line.take() {
-        let offset = target_line as f32 * row_height;
+        let offset = target_line as f32 * row_step;
         scroll_area = scroll_area.vertical_scroll_offset(offset);
     }
 
-    scroll_area.show_rows(ui, row_height, num_lines, |ui, row_range| {
+    scroll_area.show_rows(ui, row_height_sans_spacing, num_lines, |ui, row_range| {
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
 
         for idx in row_range {

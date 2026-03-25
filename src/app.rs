@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use crate::git::{self, Commit, DiffOutput};
 use crate::graph::{self, GraphRow};
 use crate::ui;
@@ -60,6 +62,14 @@ pub struct App {
 
     /// Text field for the new branch name in the CreateBranch dialog.
     pub new_branch_name: String,
+
+    /// Indices of multi-selected commits (for batch operations like cherry-pick).
+    /// Kept sorted via BTreeSet so iteration is always in list order.
+    pub multi_selection: BTreeSet<usize>,
+
+    /// The index of the "anchor" for shift+click range selection.
+    /// Set to the last plain-clicked or ctrl+clicked index.
+    pub selection_anchor: Option<usize>,
 }
 
 impl App {
@@ -92,6 +102,8 @@ impl App {
             visible_commit_range: None,
             create_branch_sha: None,
             new_branch_name: String::new(),
+            multi_selection: BTreeSet::new(),
+            selection_anchor: None,
         };
 
         app.refresh_commits();
@@ -122,6 +134,8 @@ impl App {
             visible_commit_range: None,
             create_branch_sha: None,
             new_branch_name: String::new(),
+            multi_selection: BTreeSet::new(),
+            selection_anchor: None,
         }
     }
 
@@ -147,6 +161,8 @@ impl App {
         self.diff = None;
         self.selected_file_index = None;
         self.scroll_to_diff_line = None;
+        self.multi_selection.clear();
+        self.selection_anchor = None;
     }
 
     /// Select a commit by index and load its diff.
@@ -204,6 +220,46 @@ impl App {
                 self.status_message = Some(e);
             }
         }
+        self.refresh_commits();
+        self.select_branch_commit();
+    }
+
+    /// Cherry-pick all multi-selected commits in topological order (list order,
+    /// bottom-to-top = oldest first). Stops on the first error and reports it.
+    pub fn cherry_pick_multi_selection(&mut self) {
+        if self.multi_selection.is_empty() {
+            return;
+        }
+
+        // Collect SHAs in reverse index order (oldest commit first = highest
+        // index first, since the commit list is newest-first).
+        let shas: Vec<String> = self
+            .multi_selection
+            .iter()
+            .rev()
+            .filter_map(|&idx| self.commits.get(idx).map(|c| c.full_sha.clone()))
+            .collect();
+
+        let count = shas.len();
+        match git::cherry_pick_multiple(&self.repo_path, &shas) {
+            Ok(applied) => {
+                self.status_message = Some(format!(
+                    "Cherry-picked {} commit{}.",
+                    applied,
+                    if applied == 1 { "" } else { "s" }
+                ));
+                self.current_branch =
+                    git::current_branch(&self.repo_path).unwrap_or_else(|_| "detached".into());
+            }
+            Err((applied, err)) => {
+                self.status_message = Some(format!(
+                    "Cherry-pick failed after {}/{} commits: {}",
+                    applied, count, err
+                ));
+            }
+        }
+        self.multi_selection.clear();
+        self.selection_anchor = None;
         self.refresh_commits();
         self.select_branch_commit();
     }

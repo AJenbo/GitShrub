@@ -75,11 +75,11 @@
 
 ## Milestone 8: Multi-Select Cherry-Pick
 
-- [ ] Multi-select commits in the list (click, shift+click range, ctrl+click toggle)
-- [ ] Visual highlight for selected commits
-- [ ] Right-click selection → "Cherry-pick N commits"
-- [ ] Execute cherry-picks in topological order (`git cherry-pick <sha1> <sha2> ...`)
-- [ ] Show progress / conflict state if a cherry-pick fails mid-way
+- [x] Multi-select commits in the list (click, shift+click range, ctrl+click toggle)
+- [x] Visual highlight for selected commits
+- [x] Right-click selection → "Cherry-pick N commits"
+- [x] Execute cherry-picks in topological order (`git cherry-pick <sha1> <sha2> ...`)
+- [x] Show progress / conflict state if a cherry-pick fails mid-way
 - [ ] Stretch: drag and drop commits to reorder before cherry-picking
 
 ## Milestone 9: Interactive Rebase Dialog

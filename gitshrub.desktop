@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=GitShrub
+Comment=A lightweight Git history viewer
+Exec=gitshrub
+Icon=gitshrub
+Terminal=false
+Type=Application
+Categories=Development;RevisionControl;
+Keywords=git;history;log;commits;
+StartupWMClass=gitshrub

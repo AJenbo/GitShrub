@@ -25,7 +25,15 @@ const COL_PADDING: f32 = 24.0;
 /// Up/Down/Home/End navigate the list via keyboard.
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let text_height = ui.text_style_height(&egui::TextStyle::Monospace);
-    let row_height = text_height + 4.0;
+    let item_spacing_y = ui.spacing().item_spacing.y;
+    let interact_size_y = ui.spacing().interact_size.y;
+    // show_rows() expects row height WITHOUT spacing — it adds item_spacing.y
+    // internally. Each commit row is a ui.horizontal() whose rect height is
+    // max(text_height, interact_size.y) + inner margins (4.0).
+    let show_rows_height = text_height.max(interact_size_y) + 4.0;
+    // The actual step between row tops (for scroll offset math) is what
+    // show_rows computes internally: show_rows_height + item_spacing.y.
+    let row_step = show_rows_height + item_spacing_y;
 
     // Measure the actual monospace character width from the font.
     let mono_char_width = ui
@@ -75,7 +83,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         if up || down || home || end || page_up || page_down {
             let current = app.selected_index.unwrap_or(0);
             let visible_height = ui.available_height();
-            let page_rows = ((visible_height / row_height).floor() as usize).max(1);
+            let page_rows = ((visible_height / row_step).floor() as usize).max(1);
 
             let new_idx = if home {
                 0
@@ -95,6 +103,8 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             if Some(new_idx) != app.selected_index {
                 keyboard_select = Some(new_idx);
                 app.scroll_to_commit_idx = Some(new_idx);
+                // Keyboard navigation clears multi-selection.
+                app.multi_selection.clear();
             }
         }
     }
@@ -109,8 +119,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         .max(1);
     let graph_col_width = (max_lanes as f32 * LANE_WIDTH + LANE_WIDTH).max(MIN_GRAPH_WIDTH);
 
-    // Track which commit the user clicked this frame (if any).
+    // Track which commit the user clicked this frame (if any),
+    // together with the modifier keys that were held.
     let mut clicked_index: Option<usize> = None;
+    let mut click_modifiers = egui::Modifiers::NONE;
 
     // If a scroll-to request is pending, compute the offset to apply.
     // We set it on the ScrollArea before rendering so egui jumps there.
@@ -120,21 +132,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
     if let Some(target_idx) = app.scroll_to_commit_idx.take() {
         let visible_height = ui.available_height();
-        let visible_rows = (visible_height / row_height).floor() as usize;
+        let visible_rows = (visible_height / row_step).floor() as usize;
 
-        // For keyboard navigation we only scroll if the target is outside
-        // the currently visible range, and we scroll just enough to bring
-        // the target row into view (one row margin) rather than centering.
+        // Scroll only if the target is outside the currently visible range,
+        // then place it just inside the visible edge. Use row_step (the
+        // measured per-row distance) for offset math so it matches reality.
         if let Some((prev_start, prev_end)) = app.visible_commit_range {
             if target_idx < prev_start {
                 // Scrolling up: place target near the top with a 1-row margin.
                 let target_top = target_idx.saturating_sub(1);
-                let offset = target_top as f32 * row_height;
+                let offset = target_top as f32 * row_step;
                 scroll_area = scroll_area.vertical_scroll_offset(offset);
             } else if target_idx >= prev_end {
                 // Scrolling down: place target near the bottom with a 1-row margin.
                 let target_bottom = (target_idx + 2).min(num_commits);
-                let offset = (target_bottom as f32 * row_height - visible_height).max(0.0);
+                let offset = (target_bottom as f32 * row_step - visible_height).max(0.0);
                 scroll_area = scroll_area.vertical_scroll_offset(offset);
             }
             // else: already visible, no scroll needed.
@@ -142,7 +154,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             // No previous range known; center the target.
             let half_page = visible_rows / 2;
             let target_top = target_idx.saturating_sub(half_page);
-            let offset = target_top as f32 * row_height;
+            let offset = target_top as f32 * row_step;
             scroll_area = scroll_area.vertical_scroll_offset(offset);
         }
     }
@@ -150,12 +162,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     // Total width available for the row content.
     let total_width = ui.available_width();
 
-    scroll_area.show_rows(ui, row_height, num_commits, |ui, row_range| {
+    scroll_area.show_rows(ui, show_rows_height, num_commits, |ui, row_range| {
         // Store the visible range so we can check it next frame.
         app.visible_commit_range = Some((row_range.start, row_range.end));
 
         for idx in row_range.clone() {
-            let is_selected = app.selected_index == Some(idx);
+            let is_active = app.selected_index == Some(idx);
+            let is_multi = app.multi_selection.contains(&idx);
 
             // Read commit fields before any mutable borrow.
             let commit = &app.commits[idx];
@@ -171,13 +184,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
                 // Reserve space for the graph column.
                 let (graph_rect, _) = ui.allocate_exact_size(
-                    Vec2::new(graph_col_width, row_height),
+                    Vec2::new(graph_col_width, show_rows_height),
                     egui::Sense::hover(),
                 );
 
                 // Draw graph elements into the reserved rect.
                 if let Some(graph_row) = app.graph_rows.get(idx) {
-                    paint_graph_row(ui, graph_rect, graph_row, row_height);
+                    paint_graph_row(ui, graph_rect, graph_row, show_rows_height);
                 }
 
                 // Compute right-side column positions from the row rect.
@@ -218,7 +231,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
 
                 // Commit message: render it but clip to the available message area.
-                let msg_color = if is_selected {
+                let msg_color = if is_active {
                     egui::Color32::WHITE
                 } else {
                     egui::Color32::from_rgb(220, 220, 220)
@@ -226,7 +239,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 let cursor_x = ui.cursor().left();
                 let msg_avail = (message_right - cursor_x).max(20.0);
                 ui.allocate_ui_with_layout(
-                    Vec2::new(msg_avail, row_height),
+                    Vec2::new(msg_avail, show_rows_height),
                     egui::Layout::left_to_right(egui::Align::Center),
                     |ui| {
                         ui.set_clip_rect(ui.clip_rect().intersect(ui.max_rect()));
@@ -241,12 +254,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 // to cover any graph lines that bleed into this area.
                 let painter = ui.painter();
                 let row_top = ui.min_rect().top();
-                let text_y = row_top + (row_height - text_height) * 0.5;
+                let text_y = row_top + (show_rows_height - text_height) * 0.5;
                 let bg_color = ui.visuals().window_fill;
 
                 let columns_rect = Rect::from_min_max(
                     Pos2::new(author_left - 5.0, row_top),
-                    Pos2::new(row_right, row_top + row_height),
+                    Pos2::new(row_right, row_top + show_rows_height),
                 );
                 painter.rect_filled(columns_rect, 0.0, bg_color);
 
@@ -257,7 +270,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 painter.line_segment(
                     [
                         Pos2::new(author_left - 4.0, row_top),
-                        Pos2::new(author_left - 4.0, row_top + row_height),
+                        Pos2::new(author_left - 4.0, row_top + show_rows_height),
                     ],
                     sep_stroke,
                 );
@@ -282,7 +295,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 painter.line_segment(
                     [
                         Pos2::new(date_left - 4.0, row_top),
-                        Pos2::new(date_left - 4.0, row_top + row_height),
+                        Pos2::new(date_left - 4.0, row_top + show_rows_height),
                     ],
                     sep_stroke,
                 );
@@ -310,112 +323,138 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             let row_response = ui.interact(row_rect, row_id, egui::Sense::click());
             if row_response.clicked() {
                 clicked_index = Some(idx);
+                click_modifiers = ui.input(|i| i.modifiers);
             }
 
-            // Highlight selected row (paint behind the text)
-            if is_selected {
+            // Highlight: active row (blue), multi-selected rows (teal).
+            if is_active {
                 ui.painter().rect_filled(
                     row_rect,
                     0.0,
                     egui::Color32::from_rgba_premultiplied(60, 80, 120, 80),
                 );
+            } else if is_multi {
+                ui.painter().rect_filled(
+                    row_rect,
+                    0.0,
+                    egui::Color32::from_rgba_premultiplied(40, 90, 90, 70),
+                );
             }
 
-            // Unified context menu for the entire row.
-            // Includes branch/tag operations when the commit has refs,
-            // plus generic commit operations always.
+            // Context menu: show multi-select menu when there is a
+            // multi-selection, otherwise show the normal single-commit menu.
+            let multi_count = app.multi_selection.len();
             row_response.context_menu(|ui| {
-                let short = &full_sha[..full_sha.len().min(12)];
-                ui.label(
-                    egui::RichText::new(format!("{}  {}", short, &subject))
-                        .strong()
-                        .color(egui::Color32::from_rgb(200, 200, 200)),
-                );
-                ui.separator();
+                if multi_count > 1 {
+                    // --- Multi-select context menu ---
+                    ui.label(
+                        egui::RichText::new(format!("{} commits selected", multi_count))
+                            .strong()
+                            .color(egui::Color32::from_rgb(200, 200, 200)),
+                    );
+                    ui.separator();
 
-                // Branch/tag operations (shown only when refs are present).
-                let local_branches: Vec<&String> = refs
-                    .iter()
-                    .filter(|r| !r.starts_with("tag: ") && !r.contains('/'))
-                    .collect();
-                let remote_branches: Vec<&String> =
-                    refs.iter().filter(|r| r.contains('/')).collect();
+                    if ui
+                        .button(format!("Cherry-pick {} commits", multi_count))
+                        .clicked()
+                    {
+                        app.cherry_pick_multi_selection();
+                        ui.close();
+                    }
+                } else {
+                    // --- Single-commit context menu ---
+                    let short = &full_sha[..full_sha.len().min(12)];
+                    ui.label(
+                        egui::RichText::new(format!("{}  {}", short, &subject))
+                            .strong()
+                            .color(egui::Color32::from_rgb(200, 200, 200)),
+                    );
+                    ui.separator();
 
-                if !local_branches.is_empty() || !remote_branches.is_empty() {
-                    for branch in &local_branches {
-                        ui.menu_button(
-                            egui::RichText::new(format!("[{}]", branch))
-                                .monospace()
-                                .color(egui::Color32::from_rgb(100, 180, 255)),
-                            |ui| {
-                                if ui.button("Checkout").clicked() {
-                                    let b = (*branch).clone();
-                                    app.run_git_action(|repo| git::checkout_branch(repo, &b));
-                                    ui.close();
-                                }
-                                if ui.button("Delete branch").clicked() {
-                                    let b = (*branch).clone();
-                                    app.run_git_action(|repo| git::delete_branch(repo, &b));
-                                    ui.close();
-                                }
-                            },
-                        );
+                    // Branch/tag operations (shown only when refs are present).
+                    let local_branches: Vec<&String> = refs
+                        .iter()
+                        .filter(|r| !r.starts_with("tag: ") && !r.contains('/'))
+                        .collect();
+                    let remote_branches: Vec<&String> =
+                        refs.iter().filter(|r| r.contains('/')).collect();
+
+                    if !local_branches.is_empty() || !remote_branches.is_empty() {
+                        for branch in &local_branches {
+                            ui.menu_button(
+                                egui::RichText::new(format!("[{}]", branch))
+                                    .monospace()
+                                    .color(egui::Color32::from_rgb(100, 180, 255)),
+                                |ui| {
+                                    if ui.button("Checkout").clicked() {
+                                        let b = (*branch).clone();
+                                        app.run_git_action(|repo| git::checkout_branch(repo, &b));
+                                        ui.close();
+                                    }
+                                    if ui.button("Delete branch").clicked() {
+                                        let b = (*branch).clone();
+                                        app.run_git_action(|repo| git::delete_branch(repo, &b));
+                                        ui.close();
+                                    }
+                                },
+                            );
+                        }
+
+                        for branch in &remote_branches {
+                            ui.menu_button(
+                                egui::RichText::new(format!("[{}]", branch))
+                                    .monospace()
+                                    .color(egui::Color32::from_rgb(130, 220, 130)),
+                                |ui| {
+                                    if ui.button("Checkout").clicked() {
+                                        let b = (*branch).clone();
+                                        app.run_git_action(|repo| git::checkout_branch(repo, &b));
+                                        ui.close();
+                                    }
+                                },
+                            );
+                        }
+
+                        ui.separator();
                     }
 
-                    for branch in &remote_branches {
-                        ui.menu_button(
-                            egui::RichText::new(format!("[{}]", branch))
-                                .monospace()
-                                .color(egui::Color32::from_rgb(130, 220, 130)),
-                            |ui| {
-                                if ui.button("Checkout").clicked() {
-                                    let b = (*branch).clone();
-                                    app.run_git_action(|repo| git::checkout_branch(repo, &b));
-                                    ui.close();
-                                }
-                            },
-                        );
+                    // Generic commit operations (always shown).
+                    if ui.button("Create branch here...").clicked() {
+                        app.create_branch_sha = Some(full_sha.clone());
+                        ui.close();
                     }
 
                     ui.separator();
-                }
 
-                // Generic commit operations (always shown).
-                if ui.button("Create branch here...").clicked() {
-                    app.create_branch_sha = Some(full_sha.clone());
-                    ui.close();
-                }
+                    if ui.button("Cherry-pick").clicked() {
+                        let sha = full_sha.clone();
+                        app.run_git_action(|repo| git::cherry_pick(repo, &sha));
+                        ui.close();
+                    }
+                    if ui.button("Revert").clicked() {
+                        let sha = full_sha.clone();
+                        app.run_git_action(|repo| git::revert_commit(repo, &sha));
+                        ui.close();
+                    }
 
-                ui.separator();
+                    ui.separator();
 
-                if ui.button("Cherry-pick").clicked() {
-                    let sha = full_sha.clone();
-                    app.run_git_action(|repo| git::cherry_pick(repo, &sha));
-                    ui.close();
-                }
-                if ui.button("Revert").clicked() {
-                    let sha = full_sha.clone();
-                    app.run_git_action(|repo| git::revert_commit(repo, &sha));
-                    ui.close();
-                }
-
-                ui.separator();
-
-                if ui.button("Reset --mixed to here").clicked() {
-                    let sha = full_sha.clone();
-                    app.run_git_action(|repo| git::reset_mixed(repo, &sha));
-                    ui.close();
-                }
-                if ui
-                    .button(
-                        egui::RichText::new("Reset --hard to here")
-                            .color(egui::Color32::from_rgb(255, 100, 100)),
-                    )
-                    .clicked()
-                {
-                    let sha = full_sha.clone();
-                    app.run_git_action(|repo| git::reset_hard(repo, &sha));
-                    ui.close();
+                    if ui.button("Reset --mixed to here").clicked() {
+                        let sha = full_sha.clone();
+                        app.run_git_action(|repo| git::reset_mixed(repo, &sha));
+                        ui.close();
+                    }
+                    if ui
+                        .button(
+                            egui::RichText::new("Reset --hard to here")
+                                .color(egui::Color32::from_rgb(255, 100, 100)),
+                        )
+                        .clicked()
+                    {
+                        let sha = full_sha.clone();
+                        app.run_git_action(|repo| git::reset_hard(repo, &sha));
+                        ui.close();
+                    }
                 }
             });
         }
@@ -423,8 +462,49 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
     // Apply the click outside the borrow of commits.
     // Keyboard selection takes precedence if both happen in the same frame.
-    if let Some(idx) = keyboard_select.or(clicked_index) {
+    if let Some(idx) = keyboard_select {
         app.select_commit(idx);
+    } else if let Some(idx) = clicked_index {
+        let ctrl = click_modifiers.command || click_modifiers.ctrl;
+        let shift = click_modifiers.shift;
+
+        if ctrl {
+            // Ctrl+click: toggle this commit in/out of multi-selection.
+            if app.multi_selection.contains(&idx) {
+                app.multi_selection.remove(&idx);
+                // If we just deselected the active commit, clear focus and diff.
+                if app.selected_index == Some(idx) {
+                    app.selected_index = None;
+                    app.diff = None;
+                    app.selected_file_index = None;
+                    app.scroll_to_diff_line = None;
+                }
+            } else {
+                app.multi_selection.insert(idx);
+                // Make the newly selected commit the active one (show its diff).
+                app.select_commit(idx);
+            }
+            app.selection_anchor = Some(idx);
+        } else if shift {
+            // Shift+click: select range from anchor to clicked index.
+            let anchor = app
+                .selection_anchor
+                .unwrap_or(app.selected_index.unwrap_or(0));
+            let lo = anchor.min(idx);
+            let hi = anchor.max(idx);
+            app.multi_selection.clear();
+            for i in lo..=hi {
+                app.multi_selection.insert(i);
+            }
+            // Make the clicked commit the active one (show its diff),
+            // but keep the anchor where it was for further shift+clicks.
+            app.select_commit(idx);
+        } else {
+            // Plain click: single select, clear multi-selection.
+            app.multi_selection.clear();
+            app.selection_anchor = Some(idx);
+            app.select_commit(idx);
+        }
     }
 }
 

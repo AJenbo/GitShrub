@@ -1,6 +1,9 @@
 use std::env;
 use std::process;
 
+use image::ImageReader;
+use std::io::Cursor;
+
 mod app;
 mod git;
 mod graph;
@@ -36,10 +39,14 @@ fn main() -> eframe::Result<()> {
         ),
     };
 
+    let icon = load_icon();
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])
-            .with_min_inner_size([800.0, 500.0]),
+            .with_min_inner_size([800.0, 500.0])
+            .with_icon(icon)
+            .with_app_id("gitshrub"),
         ..Default::default()
     };
 
@@ -87,4 +94,21 @@ fn parse_args() -> (bool, Option<String>, Result<String, String>) {
     let repo_result = git::verify_repo(&cwd);
 
     (show_all, path_filter, repo_result)
+}
+
+/// Load the application icon from the embedded PNG.
+fn load_icon() -> egui::IconData {
+    const ICON_BYTES: &[u8] = include_bytes!("../icon.png");
+    let img = ImageReader::new(Cursor::new(ICON_BYTES))
+        .with_guessed_format()
+        .expect("failed to guess icon format")
+        .decode()
+        .expect("failed to decode icon.png");
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    egui::IconData {
+        rgba: rgba.into_raw(),
+        width,
+        height,
+    }
 }

@@ -336,3 +336,15 @@ pub fn revert_commit(repo_path: &str, sha: &str) -> Result<String, String> {
 pub fn cherry_pick(repo_path: &str, sha: &str) -> Result<String, String> {
     run_git(repo_path, &["cherry-pick", sha])
 }
+
+/// Cherry-pick multiple commits in the given order (oldest first).
+/// Returns `Ok(count)` if all succeeded, or `Err((applied, message))` if one
+/// failed, where `applied` is how many were successfully applied before the failure.
+pub fn cherry_pick_multiple(repo_path: &str, shas: &[String]) -> Result<usize, (usize, String)> {
+    for (i, sha) in shas.iter().enumerate() {
+        if let Err(e) = run_git(repo_path, &["cherry-pick", sha]) {
+            return Err((i, e));
+        }
+    }
+    Ok(shas.len())
+}
