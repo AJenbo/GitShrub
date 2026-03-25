@@ -190,7 +190,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
                 // Draw graph elements into the reserved rect.
                 if let Some(graph_row) = app.graph_rows.get(idx) {
-                    paint_graph_row(ui, graph_rect, graph_row, show_rows_height);
+                    paint_graph_row(ui, graph_rect, graph_row, show_rows_height, item_spacing_y);
                 }
 
                 // Compute right-side column positions from the row rect.
@@ -509,11 +509,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 }
 
 /// Paint the graph column for a single row: edges (lines) and the commit node (circle).
-fn paint_graph_row(ui: &egui::Ui, rect: Rect, row: &graph::GraphRow, row_height: f32) {
-    let painter = ui.painter_at(rect);
+fn paint_graph_row(
+    ui: &egui::Ui,
+    rect: Rect,
+    row: &graph::GraphRow,
+    row_height: f32,
+    row_spacing: f32,
+) {
+    // Extend the paint region downward to cover the inter-row spacing gap.
+    // Without this, vertical lines have visible breaks between rows.
+    let extended_rect = Rect::from_min_max(
+        rect.min,
+        Pos2::new(rect.max.x, rect.max.y + row_spacing),
+    );
+    let painter = ui.painter_at(extended_rect);
     let line_width = 1.8;
 
     let center_y = rect.top() + row_height * 0.5;
+    let bottom_y = rect.bottom() + row_spacing;
 
     // Helper: x position for a given lane column within the graph rect.
     let lane_x = |col: usize| -> f32 { rect.left() + LANE_WIDTH * 0.5 + col as f32 * LANE_WIDTH };
@@ -527,11 +540,11 @@ fn paint_graph_row(ui: &egui::Ui, rect: Rect, row: &graph::GraphRow, row_height:
         let to_x = lane_x(edge.to_col);
 
         if edge.from_col == edge.to_col {
-            // Straight vertical line through the full row height.
+            // Straight vertical line through the full row height plus spacing.
             painter.line_segment(
                 [
                     Pos2::new(from_x, rect.top()),
-                    Pos2::new(to_x, rect.bottom()),
+                    Pos2::new(to_x, bottom_y),
                 ],
                 stroke,
             );
@@ -539,13 +552,13 @@ fn paint_graph_row(ui: &egui::Ui, rect: Rect, row: &graph::GraphRow, row_height:
             // Diagonal connector: go from (from_x, center) to (to_x, bottom).
             // Draw in two segments for a smoother look:
             // 1. Vertical from top to center (at from_x).
-            // 2. Diagonal from center to bottom (from from_x to to_x).
+            // 2. Diagonal from center to bottom+spacing (from from_x to to_x).
             painter.line_segment(
                 [Pos2::new(from_x, rect.top()), Pos2::new(from_x, center_y)],
                 stroke,
             );
             painter.line_segment(
-                [Pos2::new(from_x, center_y), Pos2::new(to_x, rect.bottom())],
+                [Pos2::new(from_x, center_y), Pos2::new(to_x, bottom_y)],
                 stroke,
             );
         }

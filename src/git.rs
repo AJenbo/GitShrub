@@ -81,7 +81,11 @@ pub fn load_commits(
     let format_arg = format!("--format={}", format_str);
 
     // Build args properly
-    let mut real_args: Vec<String> = vec!["log".into(), format_arg];
+    // --topo-order ensures commits are in topological order (children before
+    // parents, branches kept together) which is required for correct graph
+    // rendering. Without it, git uses chronological order which can interleave
+    // branches and break the graph lane assignment algorithm.
+    let mut real_args: Vec<String> = vec!["log".into(), format_arg, "--topo-order".into()];
 
     if show_all {
         real_args.push("--all".into());
