@@ -39,6 +39,24 @@ pub struct App {
 
     /// Status/error message to display temporarily.
     pub status_message: Option<String>,
+
+    /// Longest author name length in characters (for column width calculation).
+    pub max_author_chars: usize,
+
+    /// Width of the file list panel (user-adjustable by dragging the divider).
+    pub file_list_width: f32,
+
+    /// If set, the commit list should scroll to this index on the next frame.
+    pub scroll_to_commit_idx: Option<usize>,
+
+    /// The visible row range from the last frame (start, end) for scroll checks.
+    pub visible_commit_range: Option<(usize, usize)>,
+
+    /// SHA for a pending "Create branch" action (needs name input).
+    pub create_branch_sha: Option<String>,
+
+    /// Text field for the new branch name in the CreateBranch dialog.
+    pub new_branch_name: String,
 }
 
 impl App {
@@ -64,6 +82,12 @@ impl App {
             current_branch,
             repo_name,
             status_message: None,
+            max_author_chars: 10,
+            file_list_width: 250.0,
+            scroll_to_commit_idx: None,
+            visible_commit_range: None,
+            create_branch_sha: None,
+            new_branch_name: String::new(),
         };
 
         app.refresh_commits();
@@ -75,8 +99,14 @@ impl App {
         match git::load_commits(&self.repo_path, self.show_all, self.path_filter.as_deref()) {
             Ok(commits) => {
                 self.graph_rows = graph::compute_graph(&commits);
+                // Store the longest author name length for column sizing.
+                self.max_author_chars = commits
+                    .iter()
+                    .map(|c| c.author_name.len())
+                    .max()
+                    .unwrap_or(8)
+                    .clamp(8, 40);
                 self.commits = commits;
-                self.status_message = None;
             }
             Err(e) => {
                 self.status_message = Some(format!("Failed to load commits: {}", e));
@@ -86,7 +116,6 @@ impl App {
         self.diff = None;
         self.selected_file_index = None;
         self.scroll_to_file = None;
-        // graph_rows is already recomputed above when commits load successfully.
     }
 
     /// Select a commit by index and load its diff.
@@ -128,6 +157,39 @@ impl App {
             (None, false) => format!("GitShrub - {} [{}]", name, branch),
         }
     }
+
+    /// Run a git action, show any error in the status bar, and refresh.
+    pub fn run_git_action<F>(&mut self, action: F)
+    where
+        F: FnOnce(&str) -> Result<String, String>,
+    {
+        match action(&self.repo_path) {
+            Ok(_) => {
+                self.status_message = None;
+                self.current_branch =
+                    git::current_branch(&self.repo_path).unwrap_or_else(|_| "detached".into());
+            }
+            Err(e) => {
+                self.status_message = Some(e);
+            }
+        }
+        self.refresh_commits();
+        self.select_branch_commit();
+    }
+
+    /// Find the commit that the current branch points to, select it,
+    /// and request the commit list to scroll there.
+    fn select_branch_commit(&mut self) {
+        let branch = &self.current_branch;
+        if let Some(idx) = self
+            .commits
+            .iter()
+            .position(|c| c.refs.iter().any(|r| r == branch))
+        {
+            self.select_commit(idx);
+            self.scroll_to_commit_idx = Some(idx);
+        }
+    }
 }
 
 impl eframe::App for App {
@@ -141,6 +203,9 @@ impl eframe::App for App {
         let title = self.window_title();
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
 
+        // Create branch name input dialog.
+        self.show_create_branch_dialog(ctx);
+
         // Error/status banner at the top
         if let Some(ref msg) = self.status_message {
             egui::TopBottomPanel::top("status_bar").show(ctx, |ui| {
@@ -151,16 +216,20 @@ impl eframe::App for App {
                     }
                 });
             });
-            // Clear status on dismiss — check if button was clicked
-            // We handle this after the panel by just letting it persist for now.
             // TODO: add a timer or dismiss button that works with borrow checker
         }
 
-        // Bottom panel: commit info + diff + file list
+        // Bottom panel: commit info + diff + file list.
+        // Use a filled frame so the panel background covers any commit list
+        // text that bleeds past the panel boundary above.
+        let panel_frame = egui::Frame::new()
+            .fill(ctx.style().visuals.panel_fill)
+            .inner_margin(4.0);
         egui::TopBottomPanel::bottom("bottom_panel")
             .resizable(true)
             .min_height(150.0)
             .default_height(350.0)
+            .frame(panel_frame)
             .show(ctx, |ui| {
                 self.render_bottom_pane(ui);
             });
@@ -173,6 +242,63 @@ impl eframe::App for App {
 }
 
 impl App {
+    /// Show the branch name input dialog when a CreateBranch action is pending.
+    fn show_create_branch_dialog(&mut self, ctx: &egui::Context) {
+        let sha = match self.create_branch_sha.clone() {
+            Some(s) => s,
+            None => return,
+        };
+
+        let mut confirmed = false;
+        let mut cancelled = false;
+
+        egui::Window::new("Create Branch")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "Create a new branch at {}:",
+                    &sha[..sha.len().min(12)]
+                ));
+
+                ui.add_space(8.0);
+                let text_edit = ui.text_edit_singleline(&mut self.new_branch_name);
+                text_edit.request_focus();
+
+                if text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    confirmed = true;
+                }
+
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    cancelled = true;
+                }
+
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    if ui.button("OK").clicked() {
+                        confirmed = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancelled = true;
+                    }
+                });
+            });
+
+        if confirmed {
+            let name = self.new_branch_name.trim().to_string();
+            self.create_branch_sha = None;
+            self.new_branch_name.clear();
+            if !name.is_empty() {
+                let sha_clone = sha;
+                self.run_git_action(|repo| git::create_branch(repo, &name, &sha_clone));
+            }
+        } else if cancelled {
+            self.create_branch_sha = None;
+            self.new_branch_name.clear();
+        }
+    }
+
     /// Render the bottom pane: commit info bar, then diff view + file list side by side.
     fn render_bottom_pane(&mut self, ui: &mut egui::Ui) {
         // Commit info bar
@@ -185,13 +311,16 @@ impl App {
         match self.diff.clone() {
             Some(diff) => {
                 let available = ui.available_size();
-                let file_list_width = 250.0_f32.min(available.x * 0.3);
+                // Clamp file list width to reasonable bounds.
+                let min_file_width = 100.0_f32;
+                let max_file_width = (available.x - 200.0).max(min_file_width);
+                self.file_list_width = self.file_list_width.clamp(min_file_width, max_file_width);
 
-                // Use a right-to-left approach: file list on the right, diff fills the rest
+                let file_list_width = self.file_list_width;
+                let diff_width = (available.x - file_list_width - 12.0).max(100.0);
+
                 let layout = egui::Layout::left_to_right(egui::Align::Min);
                 ui.with_layout(layout, |ui| {
-                    // Left: diff view — give it all remaining width minus file list
-                    let diff_width = (available.x - file_list_width - 8.0).max(100.0);
                     let diff_height = available.y;
 
                     ui.vertical(|ui| {
@@ -200,11 +329,23 @@ impl App {
                         ui::diff_view::show(ui, &diff.raw, &mut self.scroll_to_file);
                     });
 
-                    ui.separator();
+                    // Draggable divider.
+                    let separator_response = ui.separator();
+                    let sep_rect = separator_response.rect.expand2(egui::vec2(4.0, 0.0));
+                    let sep_id = ui.id().with("diff_file_divider");
+                    let sep_interact = ui.interact(sep_rect, sep_id, egui::Sense::click_and_drag());
 
-                    // Right: file list
+                    if sep_interact.hovered() || sep_interact.dragged() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
+                    }
+                    if sep_interact.dragged() {
+                        self.file_list_width -= sep_interact.drag_delta().x;
+                        self.file_list_width =
+                            self.file_list_width.clamp(min_file_width, max_file_width);
+                    }
+
                     ui.vertical(|ui| {
-                        ui.set_width(file_list_width);
+                        ui.set_width(self.file_list_width);
                         ui.set_height(available.y);
                         let response =
                             ui::file_list::show(ui, &diff.files, self.selected_file_index);

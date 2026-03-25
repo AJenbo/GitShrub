@@ -66,17 +66,17 @@ pub fn load_commits(
     show_all: bool,
     path_filter: Option<&str>,
 ) -> Result<Vec<Commit>, String> {
-    // Field separator: \x1f (Unit Separator)
-    // Record separator: \x1e (Record Separator)
+    // Use %x00 (null) as field separator and %x01 (SOH) as record separator.
+    // These cannot appear in commit messages so parsing is reliable.
     //
     // Fields: full_sha, short_sha, parents, author_name, author_email, date, subject, body, decorate
-    let format_str = "%H\x1f%h\x1f%P\x1f%an\x1f%ae\x1f%ai\x1f%s\x1f%b\x1f%D\x1e";
+    let format_str = "%H%x00%h%x00%P%x00%an%x00%ae%x00%ai%x00%s%x00%b%x00%D%x01";
 
     // We need to own the format string so it lives long enough
     let format_arg = format!("--format={}", format_str);
 
     // Build args properly
-    let mut real_args: Vec<String> = vec!["log".into(), format_arg, "-n".into(), "1000".into()];
+    let mut real_args: Vec<String> = vec!["log".into(), format_arg];
 
     if show_all {
         real_args.push("--all".into());
@@ -92,13 +92,13 @@ pub fn load_commits(
 
     let mut commits = Vec::new();
 
-    for record in output.split('\x1e') {
+    for record in output.split('\x01') {
         let record = record.trim();
         if record.is_empty() {
             continue;
         }
 
-        let fields: Vec<&str> = record.split('\x1f').collect();
+        let fields: Vec<&str> = record.split('\0').collect();
         if fields.len() < 8 {
             continue;
         }
@@ -153,6 +153,8 @@ fn parse_refs(decoration: &str) -> Vec<String> {
                 s
             }
         })
+        // Filter out remote HEAD pointers like "origin/HEAD" (not useful).
+        .filter(|s| !s.ends_with("/HEAD"))
         .collect()
 }
 
@@ -259,4 +261,50 @@ pub fn verify_repo(path: &str) -> Result<String, String> {
     } else {
         Ok(root)
     }
+}
+
+// --- Branch operations ---
+
+/// Checkout a branch by name.
+/// If the branch is a remote like `origin/foo`, checks out the local name `foo`.
+/// Git will auto-create a tracking branch if it doesn't exist yet (DWIM mode).
+pub fn checkout_branch(repo_path: &str, branch: &str) -> Result<String, String> {
+    if let Some(local) = branch.split('/').next_back()
+        && branch.contains('/')
+    {
+        return run_git(repo_path, &["checkout", local]);
+    }
+    run_git(repo_path, &["checkout", branch])
+}
+
+/// Delete a local branch. Uses `-D` (force delete).
+pub fn delete_branch(repo_path: &str, branch: &str) -> Result<String, String> {
+    run_git(repo_path, &["branch", "-D", branch])
+}
+
+/// Create a new branch at the given commit SHA.
+pub fn create_branch(repo_path: &str, name: &str, sha: &str) -> Result<String, String> {
+    run_git(repo_path, &["branch", name, sha])
+}
+
+// --- Commit operations ---
+
+/// Reset the current branch to the given SHA with `--mixed` (keeps working tree).
+pub fn reset_mixed(repo_path: &str, sha: &str) -> Result<String, String> {
+    run_git(repo_path, &["reset", "--mixed", sha])
+}
+
+/// Reset the current branch to the given SHA with `--hard` (discards everything).
+pub fn reset_hard(repo_path: &str, sha: &str) -> Result<String, String> {
+    run_git(repo_path, &["reset", "--hard", sha])
+}
+
+/// Revert the given commit (creates a new commit that undoes it).
+pub fn revert_commit(repo_path: &str, sha: &str) -> Result<String, String> {
+    run_git(repo_path, &["revert", "--no-edit", sha])
+}
+
+/// Cherry-pick the given commit onto the current branch.
+pub fn cherry_pick(repo_path: &str, sha: &str) -> Result<String, String> {
+    run_git(repo_path, &["cherry-pick", sha])
 }

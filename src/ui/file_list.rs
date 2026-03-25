@@ -14,13 +14,6 @@ pub fn show(ui: &mut egui::Ui, files: &[String], selected_file: Option<usize>) -
     let mut clicked = None;
 
     ui.vertical(|ui| {
-        ui.label(
-            egui::RichText::new("Files")
-                .strong()
-                .color(egui::Color32::from_rgb(200, 200, 200)),
-        );
-        ui.separator();
-
         egui::ScrollArea::vertical()
             .id_salt("files_scroll")
             .auto_shrink([false, false])

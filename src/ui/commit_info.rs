@@ -1,7 +1,7 @@
 use crate::git::Commit;
 
 /// Renders the commit info bar (middle section).
-/// Shows the full SHA (clickable to copy), author, date, and commit message.
+/// Shows the full SHA, author, date, and commit message.
 pub fn show(ui: &mut egui::Ui, commit: &Commit) {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
@@ -12,18 +12,11 @@ pub fn show(ui: &mut egui::Ui, commit: &Commit) {
                 .color(egui::Color32::from_rgb(180, 180, 180)),
         );
 
-        let sha_response = ui.add(
-            egui::Label::new(
-                egui::RichText::new(&commit.full_sha)
-                    .monospace()
-                    .color(egui::Color32::from_rgb(130, 170, 255)),
-            )
-            .sense(egui::Sense::click()),
+        ui.label(
+            egui::RichText::new(&commit.full_sha)
+                .monospace()
+                .color(egui::Color32::from_rgb(130, 170, 255)),
         );
-
-        if sha_response.clicked() {
-            ui.ctx().copy_text(commit.full_sha.clone());
-        }
     });
 
     ui.horizontal_wrapped(|ui| {

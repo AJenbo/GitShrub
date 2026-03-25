@@ -1,5 +1,9 @@
 # GitShrub 🥦
 
+<p align="center">
+  <img src="docs/assets/bramble.png" alt="Bramble the GitShrub possum" width="256" height="256" />
+</p>
+
 Sit back, trim your shrub, and enjoy a good overview of your project.
 
 A lightweight Git history viewer built with Rust and egui. Think gitk, but with a modern UI that doesn't look like it escaped from 1997.

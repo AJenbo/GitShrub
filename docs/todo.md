@@ -40,20 +40,19 @@
 
 ## Milestone 6: Branch Operations (Context Menu)
 
-- [ ] Right-click on branch/tag label → context menu
-- [ ] Checkout branch
-- [ ] Delete branch (with confirmation)
-- [ ] Right-click on commit message → context menu
-- [ ] Create branch (prompt for name)
-- [ ] Reset --mixed (with confirmation)
-- [ ] Reset --hard (with confirmation)
-- [ ] Revert commit (with confirmation)
-- [ ] Cherry-pick commit
-- [ ] Refresh commit list after any mutating operation
+- [x] Right-click on branch/tag label → context menu
+- [x] Checkout branch
+- [x] Delete branch (with confirmation)
+- [x] Right-click on commit message → context menu
+- [x] Create branch (prompt for name)
+- [x] Reset --mixed (with confirmation)
+- [x] Reset --hard (with confirmation)
+- [x] Revert commit (with confirmation)
+- [x] Cherry-pick commit
+- [x] Refresh commit list after any mutating operation
 
 ## Milestone 7: Polish
 
-- [x] Click commit SHA to copy to clipboard
 - [ ] Keyboard navigation (up/down in commit list)
 - [ ] Handle repos with no commits gracefully
 - [ ] Handle non-repo directories gracefully (error message)
