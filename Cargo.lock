@@ -1183,7 +1183,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gittea"
+name = "gitshrub"
 version = "0.1.0"
 dependencies = [
  "eframe",

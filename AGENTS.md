@@ -1,8 +1,8 @@
-# AGENTS.md - GitTea Development Guide
+# AGENTS.md - GitShrub Development Guide
 
 ## Project Overview
 
-GitTea is a lightweight Git history viewer built with Rust and egui.
+GitShrub is a lightweight Git history viewer built with Rust and egui.
 It shells out to the git CLI for all git operations (no libgit2).
 
 See `docs/architecture.md` for full design details and `docs/todo.md` for the roadmap.

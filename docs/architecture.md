@@ -1,8 +1,8 @@
-# GitTea Architecture
+# GitShrub Architecture
 
 ## Philosophy
 
-GitTea is a **gitk replacement**. Nothing more, nothing less.
+GitShrub is a **gitk replacement**. Nothing more, nothing less.
 
 It's not an IDE. It's not a full Git client. It's a commit history viewer with
 just enough actions to be useful. Like gitk, the heavy lifting is done via CLI
@@ -28,13 +28,13 @@ flags — the GUI stays simple.
 
 ## CLI Interface
 
-GitTea is invoked from the terminal. Filtering is done via flags, not GUI widgets.
+GitShrub is invoked from the terminal. Filtering is done via flags, not GUI widgets.
 
 ```sh
-gittea                     # Current branch history
-gittea --all               # All branches
-gittea <path>              # File/directory history
-gittea --all <path>        # All branches, filtered to path
+gitshrub                     # Current branch history
+gitshrub --all               # All branches
+gitshrub <path>              # File/directory history
+gitshrub --all <path>        # All branches, filtered to path
 ```
 
 Run from inside a git repo, or it exits with an error.

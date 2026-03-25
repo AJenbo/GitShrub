@@ -11,13 +11,13 @@ fn main() -> eframe::Result<()> {
     let repo_name = std::path::Path::new(&repo_path)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "GitTea".to_string());
+        .unwrap_or_else(|| "GitShrub".to_string());
 
     let title = match (&path_filter, show_all) {
-        (Some(path), true) => format!("GitTea - {} - {} (all branches)", repo_name, path),
-        (Some(path), false) => format!("GitTea - {} - {}", repo_name, path),
-        (None, true) => format!("GitTea - {} (all branches)", repo_name),
-        (None, false) => format!("GitTea - {}", repo_name),
+        (Some(path), true) => format!("GitShrub - {} - {} (all branches)", repo_name, path),
+        (Some(path), false) => format!("GitShrub - {} - {}", repo_name, path),
+        (None, true) => format!("GitShrub - {} (all branches)", repo_name),
+        (None, false) => format!("GitShrub - {}", repo_name),
     };
 
     let native_options = eframe::NativeOptions {
@@ -47,7 +47,7 @@ fn parse_args() -> (bool, Option<String>, String) {
         match arg.as_str() {
             "--all" => show_all = true,
             "--help" | "-h" => {
-                eprintln!("Usage: gittea [--all] [<path>]");
+                eprintln!("Usage: gitshrub [--all] [<path>]");
                 eprintln!();
                 eprintln!("  --all       Show all branches (default: current branch only)");
                 eprintln!("  <path>      Show history for a specific file or directory");

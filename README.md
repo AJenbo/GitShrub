@@ -1,6 +1,6 @@
-# GitTea 🍵
+# GitShrub 🥦
 
-Sit back, sip your tea, and enjoy a good overview of your project.
+Sit back, trim your shrub, and enjoy a good overview of your project.
 
 A lightweight Git history viewer built with Rust and egui. Think gitk, but with a modern UI that doesn't look like it escaped from 1997.
 
@@ -15,22 +15,22 @@ A lightweight Git history viewer built with Rust and egui. Think gitk, but with 
 | tig/lazygit | TUIs are not for everyone |
 | git cola | Great, but relies on gitk for tree view |
 
-GitTea fills the gap: a fast, good-looking, lightweight commit history viewer for Linux (and beyond).
+GitShrub fills the gap: a fast, good-looking, lightweight commit history viewer for Linux (and beyond).
 
 ## Usage
 
 ```sh
 # Show current branch history
-gittea
+gitshrub
 
 # Show all branch history
-gittea --all
+gitshrub --all
 
 # Show history for a specific file or directory
-gittea path/to/file.rs
+gitshrub path/to/file.rs
 
 # Combine them
-gittea --all path/to/file.rs
+gitshrub --all path/to/file.rs
 ```
 
 ## Building
@@ -39,7 +39,7 @@ gittea --all path/to/file.rs
 cargo build --release
 ```
 
-The binary will be at `target/release/gittea`. Only runtime dependency is `git` on your PATH.
+The binary will be at `target/release/gitshrub`. Only runtime dependency is `git` on your PATH.
 
 ## Tech Stack
 

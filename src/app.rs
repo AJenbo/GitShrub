@@ -115,10 +115,10 @@ impl App {
         let branch = &self.current_branch;
 
         match (&self.path_filter, self.show_all) {
-            (Some(path), true) => format!("GitTea - {} - {} (all branches)", name, path),
-            (Some(path), false) => format!("GitTea - {} - {} [{}]", name, path, branch),
-            (None, true) => format!("GitTea - {} (all branches)", name),
-            (None, false) => format!("GitTea - {} [{}]", name, branch),
+            (Some(path), true) => format!("GitShrub - {} - {} (all branches)", name, path),
+            (Some(path), false) => format!("GitShrub - {} - {} [{}]", name, path, branch),
+            (None, true) => format!("GitShrub - {} (all branches)", name),
+            (None, false) => format!("GitShrub - {} [{}]", name, branch),
         }
     }
 }

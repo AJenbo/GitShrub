@@ -1,8 +1,8 @@
 [package]
-name = "gittea"
+name = "gitshrub"
 version = "0.1.0"
 edition = "2024"
-description = "GitTea - A lightweight Git history viewer"
+description = "GitShrub - A lightweight Git history viewer"
 license = "MIT"
 
 [dependencies]

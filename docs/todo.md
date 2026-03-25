@@ -1,4 +1,4 @@
-# GitTea - TODO
+# GitShrub - TODO
 
 ## Milestone 1: Skeleton
 
