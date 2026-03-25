@@ -1,0 +1,16 @@
+[package]
+name = "gittea"
+version = "0.1.0"
+edition = "2024"
+description = "GitTea - A lightweight Git history viewer"
+license = "MIT"
+
+[dependencies]
+eframe = { version = "0.31", default-features = true }
+egui = "0.31"
+rfd = "0.15"
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+strip = true
