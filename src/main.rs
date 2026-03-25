@@ -7,18 +7,33 @@ mod graph;
 mod ui;
 
 fn main() -> eframe::Result<()> {
-    let (show_all, path_filter, repo_path) = parse_args();
+    let (show_all, path_filter, repo_result) = parse_args();
 
-    let repo_name = std::path::Path::new(&repo_path)
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "GitShrub".to_string());
+    let (title, make_app): (String, Box<dyn FnOnce() -> app::App + Send>) = match repo_result {
+        Ok(repo_path) => {
+            let repo_name = std::path::Path::new(&repo_path)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "GitShrub".to_string());
 
-    let title = match (&path_filter, show_all) {
-        (Some(path), true) => format!("GitShrub - {} - {} (all branches)", repo_name, path),
-        (Some(path), false) => format!("GitShrub - {} - {}", repo_name, path),
-        (None, true) => format!("GitShrub - {} (all branches)", repo_name),
-        (None, false) => format!("GitShrub - {}", repo_name),
+            let t = match (&path_filter, show_all) {
+                (Some(path), true) => {
+                    format!("GitShrub - {} - {} (all branches)", repo_name, path)
+                }
+                (Some(path), false) => format!("GitShrub - {} - {}", repo_name, path),
+                (None, true) => format!("GitShrub - {} (all branches)", repo_name),
+                (None, false) => format!("GitShrub - {}", repo_name),
+            };
+
+            (
+                t,
+                Box::new(move || app::App::new(repo_path, show_all, path_filter)),
+            )
+        }
+        Err(error) => (
+            "GitShrub".to_string(),
+            Box::new(move || app::App::with_error(error)),
+        ),
     };
 
     let native_options = eframe::NativeOptions {
@@ -33,13 +48,13 @@ fn main() -> eframe::Result<()> {
         native_options,
         Box::new(move |cc| {
             cc.egui_ctx.set_visuals(egui::Visuals::dark());
-            Ok(Box::new(app::App::new(repo_path, show_all, path_filter)))
+            Ok(Box::new(make_app()))
         }),
     )
 }
 
 /// Parse CLI arguments. Returns (show_all, path_filter, repo_path).
-fn parse_args() -> (bool, Option<String>, String) {
+fn parse_args() -> (bool, Option<String>, Result<String, String>) {
     let args: Vec<String> = env::args().skip(1).collect();
     let mut show_all = false;
     let mut path_filter = None;
@@ -69,13 +84,7 @@ fn parse_args() -> (bool, Option<String>, String) {
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| ".".to_string());
 
-    let repo_path = match git::verify_repo(&cwd) {
-        Ok(root) => root,
-        Err(e) => {
-            eprintln!("fatal: {}", e);
-            process::exit(1);
-        }
-    };
+    let repo_result = git::verify_repo(&cwd);
 
-    (show_all, path_filter, repo_path)
+    (show_all, path_filter, repo_result)
 }

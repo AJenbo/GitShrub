@@ -25,8 +25,8 @@ pub struct App {
     /// Which file in the affected files list is selected (index into diff.files).
     pub selected_file_index: Option<usize>,
 
-    /// File to scroll to in the diff view when user clicks a file in the file list.
-    pub scroll_to_file: Option<String>,
+    /// Line index to scroll to in the diff view (set when user clicks a file in the file list).
+    pub scroll_to_diff_line: Option<usize>,
 
     /// Computed graph layout rows, one per commit (same order as `commits`).
     pub graph_rows: Vec<GraphRow>,
@@ -45,6 +45,9 @@ pub struct App {
 
     /// Width of the file list panel (user-adjustable by dragging the divider).
     pub file_list_width: f32,
+
+    /// If set, the app shows only this error message (non-repo or fatal startup error).
+    pub startup_error: Option<String>,
 
     /// If set, the commit list should scroll to this index on the next frame.
     pub scroll_to_commit_idx: Option<usize>,
@@ -77,13 +80,14 @@ impl App {
             selected_index: None,
             diff: None,
             selected_file_index: None,
-            scroll_to_file: None,
+            scroll_to_diff_line: None,
             graph_rows: Vec::new(),
             current_branch,
             repo_name,
             status_message: None,
             max_author_chars: 10,
             file_list_width: 250.0,
+            startup_error: None,
             scroll_to_commit_idx: None,
             visible_commit_range: None,
             create_branch_sha: None,
@@ -92,6 +96,33 @@ impl App {
 
         app.refresh_commits();
         app
+    }
+
+    /// Create an App that only displays a startup error message.
+    /// Used when the current directory is not a git repository or another
+    /// fatal condition prevents normal startup.
+    pub fn with_error(error: String) -> Self {
+        App {
+            repo_path: String::new(),
+            show_all: false,
+            path_filter: None,
+            commits: Vec::new(),
+            selected_index: None,
+            diff: None,
+            selected_file_index: None,
+            scroll_to_diff_line: None,
+            graph_rows: Vec::new(),
+            current_branch: String::new(),
+            repo_name: String::new(),
+            status_message: None,
+            max_author_chars: 10,
+            file_list_width: 250.0,
+            startup_error: Some(error),
+            scroll_to_commit_idx: None,
+            visible_commit_range: None,
+            create_branch_sha: None,
+            new_branch_name: String::new(),
+        }
     }
 
     /// Reload the commit list from git.
@@ -115,7 +146,7 @@ impl App {
         self.selected_index = None;
         self.diff = None;
         self.selected_file_index = None;
-        self.scroll_to_file = None;
+        self.scroll_to_diff_line = None;
     }
 
     /// Select a commit by index and load its diff.
@@ -126,7 +157,7 @@ impl App {
 
         self.selected_index = Some(index);
         self.selected_file_index = None;
-        self.scroll_to_file = None;
+        self.scroll_to_diff_line = None;
 
         let sha = self.commits[index].full_sha.clone();
         match git::load_diff(&self.repo_path, &sha) {
@@ -197,6 +228,33 @@ impl eframe::App for App {
         // Ctrl+Q to quit.
         if ctx.input(|i| i.key_pressed(egui::Key::Q) && i.modifiers.command) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+
+        // If the app was created with a startup error, show only that.
+        if let Some(ref error) = self.startup_error {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title("GitShrub".to_string()));
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(ui.available_height() * 0.3);
+                    ui.heading(
+                        egui::RichText::new("Not a Git repository")
+                            .color(egui::Color32::from_rgb(255, 140, 100))
+                            .size(20.0),
+                    );
+                    ui.add_space(12.0);
+                    ui.label(
+                        egui::RichText::new(error)
+                            .color(egui::Color32::from_rgb(180, 180, 180))
+                            .size(14.0),
+                    );
+                    ui.add_space(24.0);
+                    ui.label(
+                        egui::RichText::new("Run GitShrub from inside a git repository.")
+                            .color(egui::Color32::from_rgb(140, 140, 140)),
+                    );
+                });
+            });
+            return;
         }
 
         // Update window title
@@ -300,6 +358,8 @@ impl App {
     }
 
     /// Render the bottom pane: commit info bar, then diff view + file list side by side.
+    ///
+    /// Uses `take()` + put-back to avoid cloning `DiffOutput` every frame.
     fn render_bottom_pane(&mut self, ui: &mut egui::Ui) {
         // Commit info bar
         if let Some(commit) = self.selected_commit().cloned() {
@@ -307,8 +367,11 @@ impl App {
             ui.separator();
         }
 
-        // Diff + file list side by side
-        match self.diff.clone() {
+        // Temporarily take the diff out of self so we can borrow it
+        // immutably while still mutating other fields on self.
+        let diff = self.diff.take();
+
+        match diff {
             Some(diff) => {
                 let available = ui.available_size();
                 // Clamp file list width to reasonable bounds.
@@ -326,7 +389,7 @@ impl App {
                     ui.vertical(|ui| {
                         ui.set_width(diff_width);
                         ui.set_height(diff_height);
-                        ui::diff_view::show(ui, &diff.raw, &mut self.scroll_to_file);
+                        ui::diff_view::show(ui, &diff.lines, &mut self.scroll_to_diff_line);
                     });
 
                     // Draggable divider.
@@ -352,11 +415,21 @@ impl App {
                         if let Some(clicked_idx) = response.clicked_file_index {
                             self.selected_file_index = Some(clicked_idx);
                             if let Some(file_path) = diff.files.get(clicked_idx) {
-                                self.scroll_to_file = Some(file_path.clone());
+                                // Look up the line index for this file in the prebuilt header index.
+                                if let Some((_, line_idx)) = diff
+                                    .file_header_lines
+                                    .iter()
+                                    .find(|(path, _)| path == file_path)
+                                {
+                                    self.scroll_to_diff_line = Some(*line_idx);
+                                }
                             }
                         }
                     });
                 });
+
+                // Put the diff back.
+                self.diff = Some(diff);
             }
             None => {
                 ui.centered_and_justified(|ui| {

@@ -8,8 +8,11 @@ use egui::{self, Color32, RichText, ScrollArea, Ui};
 /// - Red for deletions (`-`)
 /// - Blue/bold for file headers (`diff --git`, `---`, `+++`)
 /// - Dim for hunk headers (`@@`)
-pub fn show(ui: &mut Ui, diff_text: &str, scroll_to_file: &mut Option<String>) {
-    if diff_text.is_empty() {
+///
+/// Uses `show_rows()` to only lay out the lines currently visible on screen,
+/// which keeps large diffs fast.
+pub fn show(ui: &mut Ui, lines: &[String], scroll_to_line: &mut Option<usize>) {
+    if lines.is_empty() {
         ui.centered_and_justified(|ui| {
             ui.label(
                 RichText::new("Select a commit to view its diff").color(Color32::from_gray(120)),
@@ -18,31 +21,35 @@ pub fn show(ui: &mut Ui, diff_text: &str, scroll_to_file: &mut Option<String>) {
         return;
     }
 
-    ScrollArea::both()
+    let text_height = ui.text_style_height(&egui::TextStyle::Monospace);
+    let row_height = text_height + 2.0;
+    let num_lines = lines.len();
+
+    let mut scroll_area = ScrollArea::both()
         .id_salt("diff_scroll")
         .auto_shrink([false, false])
         .scroll_source(ScrollSource {
             scroll_bar: true,
             drag: false,
             mouse_wheel: true,
-        })
-        .show(ui, |ui| {
-            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+        });
 
-            for line in diff_text.lines() {
-                // Check if this line is a file header that we should scroll to
-                if let Some(target) = scroll_to_file.as_ref()
-                    && line.starts_with("diff --git")
-                    && line.contains(target.as_str())
-                {
-                    ui.scroll_to_cursor(Some(egui::Align::TOP));
-                    *scroll_to_file = None;
-                }
+    // If a scroll-to-line request is pending, set the vertical offset directly.
+    if let Some(target_line) = scroll_to_line.take() {
+        let offset = target_line as f32 * row_height;
+        scroll_area = scroll_area.vertical_scroll_offset(offset);
+    }
 
+    scroll_area.show_rows(ui, row_height, num_lines, |ui, row_range| {
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+
+        for idx in row_range {
+            if let Some(line) = lines.get(idx) {
                 let rich = colorize_diff_line(line);
                 ui.label(rich);
             }
-        });
+        }
+    });
 }
 
 fn colorize_diff_line(line: &str) -> RichText {

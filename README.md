@@ -1,7 +1,7 @@
 # GitShrub 🥦
 
 <p align="center">
-  <img src="docs/assets/bramble.png" alt="Bramble the GitShrub possum" width="256" height="256" />
+  <img src="docs/assets/bramble.png" alt="Bramble the GitShrub possum" width="512" height="512" />
 </p>
 
 Sit back, trim your shrub, and enjoy a good overview of your project.

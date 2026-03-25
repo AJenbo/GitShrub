@@ -53,11 +53,19 @@
 
 ## Milestone 7: Polish
 
-- [ ] Keyboard navigation (up/down in commit list)
-- [ ] Handle repos with no commits gracefully
-- [ ] Handle non-repo directories gracefully (error message)
+- [x] Keyboard navigation (up/down in commit list)
+- [x] Handle repos with no commits gracefully
+- [x] Handle non-repo directories gracefully (error message)
 - [x] Window title shows repo name and current branch
-- [ ] Performance: lazy loading / pagination for large repos
+- [x] Performance: large diff view rendering is slow
+  - Fixed: diff lines are pre-split into a `Vec<String>` at load time and
+    rendered with `ScrollArea::show_rows()` so only the visible slice is
+    laid out each frame. File header positions are pre-indexed for instant
+    scroll-to-file. The per-frame `DiffOutput` clone was also eliminated.
+  - Commit list loading (all 11,885 commits at once) is acceptable for now.
+    Windowed loading is impractical because graph lane assignment needs the
+    full history from the top, and `git log --skip=N` still walks N commits
+    internally so it does not save wall-clock time for deep offsets.
 
 ---
 

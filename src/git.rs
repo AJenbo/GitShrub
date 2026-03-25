@@ -20,8 +20,11 @@ pub struct Commit {
 /// The parsed diff output for a single commit.
 #[derive(Debug, Clone)]
 pub struct DiffOutput {
-    /// Full raw diff text (for rendering).
-    pub raw: String,
+    /// Pre-split diff lines for efficient row-based rendering.
+    pub lines: Vec<String>,
+    /// Index of `diff --git` header lines: maps file path → line index.
+    /// Used by the diff view to jump to a file's section without scanning.
+    pub file_header_lines: Vec<(String, usize)>,
     /// List of files affected in this commit.
     pub files: Vec<String>,
 }
@@ -88,7 +91,16 @@ pub fn load_commits(
     }
 
     let args_refs: Vec<&str> = real_args.iter().map(|s| s.as_str()).collect();
-    let output = run_git(repo_path, &args_refs)?;
+    let output = match run_git(repo_path, &args_refs) {
+        Ok(o) => o,
+        Err(e) => {
+            // Empty repos have no commits yet; treat as an empty list, not an error.
+            if e.contains("does not have any commits yet") || e.contains("bad default revision") {
+                return Ok(Vec::new());
+            }
+            return Err(e);
+        }
+    };
 
     let mut commits = Vec::new();
 
@@ -224,7 +236,23 @@ pub fn load_diff(repo_path: &str, sha: &str) -> Result<DiffOutput, String> {
         }
     };
 
-    Ok(DiffOutput { raw, files })
+    // Pre-split diff into lines and build file header index.
+    let lines: Vec<String> = raw.lines().map(|l| l.to_string()).collect();
+    let mut file_header_lines = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if line.starts_with("diff --git") {
+            // Extract the b/ path from "diff --git a/foo b/foo"
+            if let Some(b_path) = line.rsplit(" b/").next() {
+                file_header_lines.push((b_path.to_string(), i));
+            }
+        }
+    }
+
+    Ok(DiffOutput {
+        lines,
+        file_header_lines,
+        files,
+    })
 }
 
 /// Check if a commit is the root commit (has no parents).

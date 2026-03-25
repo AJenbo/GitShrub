@@ -22,6 +22,7 @@ const COL_PADDING: f32 = 24.0;
 /// Renders the commit list in the top pane.
 /// Each row shows: graph | refs | message | author | date
 /// Clicking a row selects it. Right-clicking opens a context menu.
+/// Up/Down/Home/End navigate the list via keyboard.
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let text_height = ui.text_style_height(&egui::TextStyle::Monospace);
     let row_height = text_height + 4.0;
@@ -43,9 +44,59 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let num_commits = app.commits.len();
     if num_commits == 0 {
         ui.centered_and_justified(|ui| {
-            ui.label("No commits to display.");
+            if app.path_filter.is_some() {
+                ui.label("No commits found for this path.");
+            } else {
+                ui.label("No commits in this repository yet.");
+            }
         });
         return;
+    }
+
+    // --- Keyboard navigation (Up / Down / Home / End) ---
+    // We handle keys before building the scroll area so that a
+    // scroll-to request generated here is picked up in the same frame.
+    let mut keyboard_select: Option<usize> = None;
+
+    if app.create_branch_sha.is_none() {
+        let events = ui.input(|i| {
+            (
+                i.key_pressed(egui::Key::ArrowUp),
+                i.key_pressed(egui::Key::ArrowDown),
+                i.key_pressed(egui::Key::Home),
+                i.key_pressed(egui::Key::End),
+                i.key_pressed(egui::Key::PageUp),
+                i.key_pressed(egui::Key::PageDown),
+            )
+        });
+
+        let (up, down, home, end, page_up, page_down) = events;
+
+        if up || down || home || end || page_up || page_down {
+            let current = app.selected_index.unwrap_or(0);
+            let visible_height = ui.available_height();
+            let page_rows = ((visible_height / row_height).floor() as usize).max(1);
+
+            let new_idx = if home {
+                0
+            } else if end {
+                num_commits - 1
+            } else if up {
+                current.saturating_sub(1)
+            } else if down {
+                (current + 1).min(num_commits - 1)
+            } else if page_up {
+                current.saturating_sub(page_rows)
+            } else {
+                // page_down
+                (current + page_rows).min(num_commits - 1)
+            };
+
+            if Some(new_idx) != app.selected_index {
+                keyboard_select = Some(new_idx);
+                app.scroll_to_commit_idx = Some(new_idx);
+            }
+        }
     }
 
     // Determine graph column width from the maximum number of active lanes.
@@ -71,13 +122,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         let visible_height = ui.available_height();
         let visible_rows = (visible_height / row_height).floor() as usize;
 
-        let need_scroll = if let Some((prev_start, prev_end)) = app.visible_commit_range {
-            target_idx < prev_start || target_idx >= prev_end
+        // For keyboard navigation we only scroll if the target is outside
+        // the currently visible range, and we scroll just enough to bring
+        // the target row into view (one row margin) rather than centering.
+        if let Some((prev_start, prev_end)) = app.visible_commit_range {
+            if target_idx < prev_start {
+                // Scrolling up: place target near the top with a 1-row margin.
+                let target_top = target_idx.saturating_sub(1);
+                let offset = target_top as f32 * row_height;
+                scroll_area = scroll_area.vertical_scroll_offset(offset);
+            } else if target_idx >= prev_end {
+                // Scrolling down: place target near the bottom with a 1-row margin.
+                let target_bottom = (target_idx + 2).min(num_commits);
+                let offset = (target_bottom as f32 * row_height - visible_height).max(0.0);
+                scroll_area = scroll_area.vertical_scroll_offset(offset);
+            }
+            // else: already visible, no scroll needed.
         } else {
-            true
-        };
-
-        if need_scroll {
+            // No previous range known; center the target.
             let half_page = visible_rows / 2;
             let target_top = target_idx.saturating_sub(half_page);
             let offset = target_top as f32 * row_height;
@@ -359,8 +421,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         }
     });
 
-    // Apply the click outside the borrow of commits
-    if let Some(idx) = clicked_index {
+    // Apply the click outside the borrow of commits.
+    // Keyboard selection takes precedence if both happen in the same frame.
+    if let Some(idx) = keyboard_select.or(clicked_index) {
         app.select_commit(idx);
     }
 }
