@@ -6,9 +6,8 @@ description = "GitTea - A lightweight Git history viewer"
 license = "MIT"
 
 [dependencies]
-eframe = { version = "0.31", default-features = true }
-egui = "0.31"
-rfd = "0.15"
+eframe = { version = "0.33", default-features = true }
+egui = "0.33"
 
 [profile.release]
 opt-level = 2

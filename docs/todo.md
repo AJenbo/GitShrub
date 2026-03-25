@@ -2,11 +2,11 @@
 
 ## Milestone 1: Skeleton
 
-- [ ] Parse CLI args (--all, path filter)
-- [ ] Open eframe window with dark theme
-- [ ] Define App struct with core state
-- [ ] Shell out to `git log` and parse structured output into Vec<Commit>
-- [ ] Display commit list as plain text rows (no graph yet)
+- [x] Parse CLI args (--all, path filter)
+- [x] Open eframe window with dark theme
+- [x] Define App struct with core state
+- [x] Shell out to `git log` and parse structured output into Vec<Commit>
+- [x] Display commit list as plain text rows (no graph yet)
 
 ## Milestone 2: Commit List
 

@@ -1,3 +1,80 @@
-fn main() {
-    println!("Hello, world!");
+use std::env;
+use std::process;
+
+mod app;
+mod git;
+mod ui;
+
+fn main() -> eframe::Result<()> {
+    let (show_all, path_filter, repo_path) = parse_args();
+
+    let repo_name = std::path::Path::new(&repo_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "GitTea".to_string());
+
+    let title = match (&path_filter, show_all) {
+        (Some(path), true) => format!("GitTea - {} - {} (all branches)", repo_name, path),
+        (Some(path), false) => format!("GitTea - {} - {}", repo_name, path),
+        (None, true) => format!("GitTea - {} (all branches)", repo_name),
+        (None, false) => format!("GitTea - {}", repo_name),
+    };
+
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1200.0, 800.0])
+            .with_min_inner_size([800.0, 500.0]),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        &title,
+        native_options,
+        Box::new(move |cc| {
+            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            Ok(Box::new(app::App::new(repo_path, show_all, path_filter)))
+        }),
+    )
+}
+
+/// Parse CLI arguments. Returns (show_all, path_filter, repo_path).
+fn parse_args() -> (bool, Option<String>, String) {
+    let args: Vec<String> = env::args().skip(1).collect();
+    let mut show_all = false;
+    let mut path_filter = None;
+
+    for arg in &args {
+        match arg.as_str() {
+            "--all" => show_all = true,
+            "--help" | "-h" => {
+                eprintln!("Usage: gittea [--all] [<path>]");
+                eprintln!();
+                eprintln!("  --all       Show all branches (default: current branch only)");
+                eprintln!("  <path>      Show history for a specific file or directory");
+                process::exit(0);
+            }
+            other => {
+                if other.starts_with('-') {
+                    eprintln!("Unknown option: {}", other);
+                    process::exit(1);
+                }
+                path_filter = Some(other.to_string());
+            }
+        }
+    }
+
+    // Verify we're inside a git repo
+    let cwd = env::current_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| ".".to_string());
+
+    let repo_path = match git::verify_repo(&cwd) {
+        Ok(root) => root,
+        Err(e) => {
+            eprintln!("fatal: {}", e);
+            process::exit(1);
+        }
+    };
+
+    (show_all, path_filter, repo_path)
 }
