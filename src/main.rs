@@ -10,7 +10,7 @@ mod graph;
 mod ui;
 
 fn main() -> eframe::Result<()> {
-    let (show_all, path_filter, repo_result) = parse_args();
+    let (show_all, revision, path_filter, repo_result) = parse_args();
 
     let (title, make_app): (String, Box<dyn FnOnce() -> app::App + Send>) = match repo_result {
         Ok(repo_path) => {
@@ -30,7 +30,7 @@ fn main() -> eframe::Result<()> {
 
             (
                 t,
-                Box::new(move || app::App::new(repo_path, show_all, path_filter)),
+                Box::new(move || app::App::new(repo_path, show_all, revision, path_filter)),
             )
         }
         Err(error) => (
@@ -60,20 +60,38 @@ fn main() -> eframe::Result<()> {
     )
 }
 
-/// Parse CLI arguments. Returns (show_all, path_filter, repo_path).
-fn parse_args() -> (bool, Option<String>, Result<String, String>) {
+/// Parse CLI arguments.
+/// Returns (show_all, revision, path_filter, repo_path).
+///
+/// Follows gitk conventions:
+/// - Args before `--` are treated as revisions (branch/tag names).
+/// - Args after `--` are treated as file/directory paths.
+/// - `--all` shows all branches.
+fn parse_args() -> (bool, Option<String>, Option<String>, Result<String, String>) {
     let args: Vec<String> = env::args().skip(1).collect();
     let mut show_all = false;
+    let mut revision = None;
     let mut path_filter = None;
+    let mut after_separator = false;
 
     for arg in &args {
+        if after_separator {
+            // Everything after `--` is a path.
+            if !arg.is_empty() {
+                path_filter = Some(arg.to_string());
+            }
+            continue;
+        }
+
         match arg.as_str() {
             "--all" => show_all = true,
+            "--" => after_separator = true,
             "--help" | "-h" => {
-                eprintln!("Usage: gitshrub [--all] [<path>]");
+                eprintln!("Usage: gitshrub [--all] [<revision>] [-- <path>]");
                 eprintln!();
-                eprintln!("  --all       Show all branches (default: current branch only)");
-                eprintln!("  <path>      Show history for a specific file or directory");
+                eprintln!("  --all         Show all branches (default: current branch only)");
+                eprintln!("  <revision>    Show history for a specific branch or tag");
+                eprintln!("  -- <path>     Show history for a specific file or directory");
                 process::exit(0);
             }
             other => {
@@ -81,7 +99,8 @@ fn parse_args() -> (bool, Option<String>, Result<String, String>) {
                     eprintln!("Unknown option: {}", other);
                     process::exit(1);
                 }
-                path_filter = Some(other.to_string());
+                // Before `--`, positional args are revisions.
+                revision = Some(other.to_string());
             }
         }
     }
@@ -93,7 +112,7 @@ fn parse_args() -> (bool, Option<String>, Result<String, String>) {
 
     let repo_result = git::verify_repo(&cwd);
 
-    (show_all, path_filter, repo_result)
+    (show_all, revision, path_filter, repo_result)
 }
 
 /// Load the application icon from the embedded PNG.

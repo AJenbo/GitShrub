@@ -60,6 +60,7 @@ pub fn current_branch(repo_path: &str) -> Result<String, String> {
 /// Load commits from git log.
 ///
 /// - `show_all`: if true, passes `--all` to show all branches.
+/// - `revision`: if Some, shows history for that branch/tag/ref instead of HEAD.
 /// - `path_filter`: if Some, appends `-- <path>` to filter by file/directory.
 ///
 /// We use `git log` with `--format` using ASCII separators so we can parse
@@ -67,6 +68,7 @@ pub fn current_branch(repo_path: &str) -> Result<String, String> {
 pub fn load_commits(
     repo_path: &str,
     show_all: bool,
+    revision: Option<&str>,
     path_filter: Option<&str>,
 ) -> Result<Vec<Commit>, String> {
     // Use %x00 (null) as field separator and %x01 (SOH) as record separator.
@@ -83,6 +85,10 @@ pub fn load_commits(
 
     if show_all {
         real_args.push("--all".into());
+    }
+
+    if let Some(rev) = revision {
+        real_args.push(rev.into());
     }
 
     if let Some(path) = path_filter {

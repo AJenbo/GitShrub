@@ -12,6 +12,9 @@ pub struct App {
     /// Whether to show all branches (--all flag).
     pub show_all: bool,
 
+    /// Optional revision (branch/tag) to show history for.
+    pub revision: Option<String>,
+
     /// Optional path filter for file/directory history.
     pub path_filter: Option<String>,
 
@@ -74,7 +77,12 @@ pub struct App {
 
 impl App {
     /// Create a new App from CLI options. Loads initial commit data.
-    pub fn new(repo_path: String, show_all: bool, path_filter: Option<String>) -> Self {
+    pub fn new(
+        repo_path: String,
+        show_all: bool,
+        revision: Option<String>,
+        path_filter: Option<String>,
+    ) -> Self {
         let current_branch = git::current_branch(&repo_path).unwrap_or_else(|_| "detached".into());
 
         let repo_name = std::path::Path::new(&repo_path)
@@ -85,6 +93,7 @@ impl App {
         let mut app = App {
             repo_path,
             show_all,
+            revision,
             path_filter,
             commits: Vec::new(),
             selected_index: None,
@@ -117,6 +126,7 @@ impl App {
         App {
             repo_path: String::new(),
             show_all: false,
+            revision: None,
             path_filter: None,
             commits: Vec::new(),
             selected_index: None,
@@ -141,7 +151,12 @@ impl App {
 
     /// Reload the commit list from git.
     pub fn refresh_commits(&mut self) {
-        match git::load_commits(&self.repo_path, self.show_all, self.path_filter.as_deref()) {
+        match git::load_commits(
+            &self.repo_path,
+            self.show_all,
+            self.revision.as_deref(),
+            self.path_filter.as_deref(),
+        ) {
             Ok(commits) => {
                 self.graph_rows = graph::compute_graph(&commits);
                 // Store the longest author name length for column sizing.
@@ -195,7 +210,10 @@ impl App {
     /// Build the window title string.
     pub fn window_title(&self) -> String {
         let name = &self.repo_name;
-        let branch = &self.current_branch;
+        let branch = self
+            .revision
+            .as_deref()
+            .unwrap_or(self.current_branch.as_str());
 
         match (&self.path_filter, self.show_all) {
             (Some(path), true) => format!("GitShrub - {} - {} (all branches)", name, path),
