@@ -11,8 +11,7 @@ pub fn show(ui: &mut Ui, diff_text: &str, scroll_to_file: &mut Option<String>) {
     if diff_text.is_empty() {
         ui.centered_and_justified(|ui| {
             ui.label(
-                RichText::new("Select a commit to view its diff")
-                    .color(Color32::from_gray(120)),
+                RichText::new("Select a commit to view its diff").color(Color32::from_gray(120)),
             );
         });
         return;
@@ -26,11 +25,12 @@ pub fn show(ui: &mut Ui, diff_text: &str, scroll_to_file: &mut Option<String>) {
 
             for line in diff_text.lines() {
                 // Check if this line is a file header that we should scroll to
-                if let Some(target) = scroll_to_file.as_ref() {
-                    if line.starts_with("diff --git") && line.contains(target.as_str()) {
-                        ui.scroll_to_cursor(Some(egui::Align::TOP));
-                        *scroll_to_file = None;
-                    }
+                if let Some(target) = scroll_to_file.as_ref()
+                    && line.starts_with("diff --git")
+                    && line.contains(target.as_str())
+                {
+                    ui.scroll_to_cursor(Some(egui::Align::TOP));
+                    *scroll_to_file = None;
                 }
 
                 let rich = colorize_diff_line(line);
@@ -47,10 +47,7 @@ fn colorize_diff_line(line: &str) -> RichText {
     let context_color = Color32::from_gray(180);
 
     if line.starts_with("diff --git") {
-        RichText::new(line)
-            .color(header_color)
-            .strong()
-            .monospace()
+        RichText::new(line).color(header_color).strong().monospace()
     } else if line.starts_with("---") || line.starts_with("+++") {
         RichText::new(line).color(header_color).monospace()
     } else if line.starts_with("@@") {

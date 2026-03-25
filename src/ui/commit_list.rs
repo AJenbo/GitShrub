@@ -80,9 +80,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     } else {
                         egui::Color32::from_rgb(220, 220, 220)
                     };
-                    let message_text = egui::RichText::new(&subject)
-                        .monospace()
-                        .color(msg_color);
+                    let message_text = egui::RichText::new(&subject).monospace().color(msg_color);
                     ui.label(message_text);
 
                     // Push author and date to the right

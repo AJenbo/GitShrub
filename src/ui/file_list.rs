@@ -34,9 +34,7 @@ pub fn show(ui: &mut egui::Ui, files: &[String], selected_file: Option<usize>) -
                     let is_selected = selected_file == Some(i);
 
                     let text = format_file_path(path, is_selected);
-                    let button = egui::Button::new(text)
-                        .frame(false)
-                        .selected(is_selected);
+                    let button = egui::Button::new(text).frame(false).selected(is_selected);
 
                     if ui.add(button).clicked() {
                         clicked = Some(i);

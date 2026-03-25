@@ -40,10 +40,7 @@ pub fn show(ui: &mut egui::Ui, commit: &Commit) {
                 .color(egui::Color32::from_rgb(200, 200, 200)),
         );
 
-        ui.label(
-            egui::RichText::new(&commit.date)
-                .color(egui::Color32::from_rgb(140, 140, 140)),
-        );
+        ui.label(egui::RichText::new(&commit.date).color(egui::Color32::from_rgb(140, 140, 140)));
     });
 
     ui.add_space(4.0);
@@ -58,9 +55,6 @@ pub fn show(ui: &mut egui::Ui, commit: &Commit) {
     // Body (if any)
     let body = commit.body.trim();
     if !body.is_empty() {
-        ui.label(
-            egui::RichText::new(body)
-                .color(egui::Color32::from_rgb(160, 160, 160)),
-        );
+        ui.label(egui::RichText::new(body).color(egui::Color32::from_rgb(160, 160, 160)));
     }
 }

@@ -43,9 +43,9 @@ The binary will be at `target/release/gitshrub`. Only runtime dependency is `git
 
 ## Tech Stack
 
-- **Rust** — Fast, single binary, strong typing
-- **egui/eframe** — Immediate mode GPU-accelerated GUI
-- **git CLI** — Shells out to git for all operations (no libgit2)
+- **Rust.** Fast, single binary, strong typing
+- **egui/eframe.** Immediate mode GPU-accelerated GUI
+- **git CLI.** Shells out to git for all operations (no libgit2)
 
 See [docs/architecture.md](docs/architecture.md) for design details and [docs/todo.md](docs/todo.md) for the roadmap.
 

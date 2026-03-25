@@ -5,7 +5,9 @@ use std::process::Command;
 #[derive(Debug, Clone)]
 pub struct Commit {
     pub full_sha: String,
+    #[expect(dead_code, reason = "reserved for Milestone 4: Graph Rendering")]
     pub short_sha: String,
+    #[expect(dead_code, reason = "reserved for Milestone 4: Graph Rendering")]
     pub parents: Vec<String>,
     pub author_name: String,
     pub author_email: String,
@@ -69,19 +71,13 @@ pub fn load_commits(
     // Record separator: \x1e (Record Separator)
     //
     // Fields: full_sha, short_sha, parents, author_name, author_email, date, subject, body, decorate
-    let format_str =
-        "%H\x1f%h\x1f%P\x1f%an\x1f%ae\x1f%ai\x1f%s\x1f%b\x1f%D\x1e";
+    let format_str = "%H\x1f%h\x1f%P\x1f%an\x1f%ae\x1f%ai\x1f%s\x1f%b\x1f%D\x1e";
 
     // We need to own the format string so it lives long enough
     let format_arg = format!("--format={}", format_str);
 
     // Build args properly
-    let mut real_args: Vec<String> = vec![
-        "log".into(),
-        format_arg,
-        "-n".into(),
-        "1000".into(),
-    ];
+    let mut real_args: Vec<String> = vec!["log".into(), format_arg, "-n".into(), "1000".into()];
 
     if show_all {
         real_args.push("--all".into());
@@ -182,7 +178,14 @@ pub fn load_diff(repo_path: &str, sha: &str) -> Result<DiffOutput, String> {
     let files_output = if root {
         run_git(
             repo_path,
-            &["diff-tree", "--root", "--no-commit-id", "-r", "--name-only", sha],
+            &[
+                "diff-tree",
+                "--root",
+                "--no-commit-id",
+                "-r",
+                "--name-only",
+                sha,
+            ],
         )?
     } else {
         run_git(
@@ -199,23 +202,22 @@ pub fn load_diff(repo_path: &str, sha: &str) -> Result<DiffOutput, String> {
 
     // Get the full diff (root commits need --root)
     let raw_output = if root {
-        run_git(
-            repo_path,
-            &["diff-tree", "--root", "-p", "--stat", sha],
-        )?
+        run_git(repo_path, &["diff-tree", "--root", "-p", "--stat", sha])?
     } else {
         run_git(repo_path, &["diff-tree", "-p", "--stat", sha])?
     };
 
-    // diff-tree prints the commit SHA as the first line — strip it
-    let raw = if raw_output.starts_with(sha) {
-        raw_output[sha.len()..].trim_start_matches('\n').to_string()
+    // diff-tree prints the commit SHA as the first line. Strip it.
+    let raw = if let Some(stripped) = raw_output.strip_prefix(sha) {
+        stripped.trim_start_matches('\n').to_string()
     } else {
         // Also handle short SHA prefix on the first line
         let first_newline = raw_output.find('\n').unwrap_or(0);
         let first_line = &raw_output[..first_newline];
         if first_line.chars().all(|c| c.is_ascii_hexdigit()) {
-            raw_output[first_newline..].trim_start_matches('\n').to_string()
+            raw_output[first_newline..]
+                .trim_start_matches('\n')
+                .to_string()
         } else {
             raw_output
         }
@@ -226,7 +228,7 @@ pub fn load_diff(repo_path: &str, sha: &str) -> Result<DiffOutput, String> {
 
 /// Check if a commit is the root commit (has no parents).
 fn is_root_commit(repo_path: &str, sha: &str) -> bool {
-    let format_arg = format!("--format=%P");
+    let format_arg = "--format=%P".to_string();
     match run_git(repo_path, &["log", "-1", &format_arg, sha]) {
         Ok(output) => output.trim().is_empty(),
         Err(_) => false,
@@ -249,9 +251,7 @@ pub fn verify_repo(path: &str) -> Result<String, String> {
         .map_err(|e| format!("Failed to execute git: {}", e))?;
 
     if !output.status.success() {
-        return Err(
-            "Not a git repository (or any parent up to mount point /)".to_string(),
-        );
+        return Err("Not a git repository (or any parent up to mount point /)".to_string());
     }
 
     let root = String::from_utf8_lossy(&output.stdout).trim().to_string();
