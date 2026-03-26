@@ -396,6 +396,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                         app.run_git_action(|repo| git::delete_branch(repo, &b));
                                         ui.close();
                                     }
+                                    if ui.button("Interactive rebase...").clicked() {
+                                        let sha = full_sha.clone();
+                                        let b = (*branch).clone();
+                                        app.open_rebase_dialog(&sha, &b);
+                                        ui.close();
+                                    }
                                 },
                             );
                         }
@@ -409,6 +415,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                     if ui.button("Checkout").clicked() {
                                         let b = (*branch).clone();
                                         app.run_git_action(|repo| git::checkout_branch(repo, &b));
+                                        ui.close();
+                                    }
+                                    if ui.button("Interactive rebase...").clicked() {
+                                        let sha = full_sha.clone();
+                                        let b = (*branch).clone();
+                                        app.open_rebase_dialog(&sha, &b);
                                         ui.close();
                                     }
                                 },
@@ -518,10 +530,8 @@ fn paint_graph_row(
 ) {
     // Extend the paint region downward to cover the inter-row spacing gap.
     // Without this, vertical lines have visible breaks between rows.
-    let extended_rect = Rect::from_min_max(
-        rect.min,
-        Pos2::new(rect.max.x, rect.max.y + row_spacing),
-    );
+    let extended_rect =
+        Rect::from_min_max(rect.min, Pos2::new(rect.max.x, rect.max.y + row_spacing));
     let painter = ui.painter_at(extended_rect);
     let line_width = 1.8;
 
@@ -542,10 +552,7 @@ fn paint_graph_row(
         if edge.from_col == edge.to_col {
             // Straight vertical line through the full row height plus spacing.
             painter.line_segment(
-                [
-                    Pos2::new(from_x, rect.top()),
-                    Pos2::new(to_x, bottom_y),
-                ],
+                [Pos2::new(from_x, rect.top()), Pos2::new(to_x, bottom_y)],
                 stroke,
             );
         } else {

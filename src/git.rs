@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
@@ -27,6 +28,73 @@ pub struct DiffOutput {
     pub file_header_lines: Vec<(String, usize)>,
     /// List of files affected in this commit.
     pub files: Vec<String>,
+}
+
+/// Action to perform on a commit during interactive rebase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RebaseAction {
+    Pick,
+    Reword,
+    Edit,
+    Squash,
+    Fixup,
+    Drop,
+}
+
+impl RebaseAction {
+    /// All available actions, in menu order.
+    pub const ALL: [RebaseAction; 6] = [
+        RebaseAction::Pick,
+        RebaseAction::Reword,
+        RebaseAction::Edit,
+        RebaseAction::Squash,
+        RebaseAction::Fixup,
+        RebaseAction::Drop,
+    ];
+
+    /// The git rebase-todo keyword for this action.
+    pub fn keyword(self) -> &'static str {
+        match self {
+            RebaseAction::Pick => "pick",
+            RebaseAction::Reword => "reword",
+            RebaseAction::Edit => "edit",
+            RebaseAction::Squash => "squash",
+            RebaseAction::Fixup => "fixup",
+            RebaseAction::Drop => "drop",
+        }
+    }
+
+    /// Human-readable label for UI display.
+    pub fn label(self) -> &'static str {
+        match self {
+            RebaseAction::Pick => "Pick",
+            RebaseAction::Reword => "Reword",
+            RebaseAction::Edit => "Edit",
+            RebaseAction::Squash => "Squash",
+            RebaseAction::Fixup => "Fixup",
+            RebaseAction::Drop => "Drop",
+        }
+    }
+}
+
+impl std::fmt::Display for RebaseAction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+/// A single entry in the interactive rebase commit list.
+#[derive(Debug, Clone)]
+pub struct RebaseEntry {
+    /// The full SHA of the commit.
+    #[expect(dead_code, reason = "reserved for conflict handling and future use")]
+    pub sha: String,
+    /// Short SHA for display.
+    pub short_sha: String,
+    /// Commit subject line.
+    pub subject: String,
+    /// The action to apply during rebase.
+    pub action: RebaseAction,
 }
 
 /// Run a git command and return stdout as a String.
@@ -357,4 +425,106 @@ pub fn cherry_pick_multiple(repo_path: &str, shas: &[String]) -> Result<usize, (
         }
     }
     Ok(shas.len())
+}
+
+// --- Interactive rebase ---
+
+/// Load the list of commits from HEAD down to (but not including) the given
+/// base SHA. These are the commits that would be rebased in an interactive
+/// rebase onto `base_sha`. Returned in oldest-first order (bottom of the
+/// rebase todo list first), which is the order git rebase -i uses.
+pub fn load_rebase_commits(repo_path: &str, base_sha: &str) -> Result<Vec<RebaseEntry>, String> {
+    let range = format!("{}..HEAD", base_sha);
+    let format_arg = "--format=%H%x00%h%x00%s".to_string();
+    let output = run_git(
+        repo_path,
+        &["log", "--reverse", "--topo-order", &format_arg, &range],
+    )?;
+
+    let mut entries = Vec::new();
+    for line in output.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let fields: Vec<&str> = line.split('\0').collect();
+        if fields.len() < 3 {
+            continue;
+        }
+        entries.push(RebaseEntry {
+            sha: fields[0].to_string(),
+            short_sha: fields[1].to_string(),
+            subject: fields[2].to_string(),
+            action: RebaseAction::Pick,
+        });
+    }
+
+    if entries.is_empty() {
+        return Err("No commits to rebase (HEAD is already at or behind the base).".into());
+    }
+
+    Ok(entries)
+}
+
+/// Execute an interactive rebase using the given sequence of entries.
+///
+/// This works by writing a rebase-todo script to a temporary file and
+/// setting `GIT_SEQUENCE_EDITOR` to a command that copies that file into
+/// the rebase todo, replacing the default editor interaction.
+pub fn rebase_interactive(
+    repo_path: &str,
+    base_sha: &str,
+    entries: &[RebaseEntry],
+) -> Result<String, String> {
+    // Build the rebase todo content.
+    let mut todo = String::new();
+    for entry in entries {
+        todo.push_str(entry.action.keyword());
+        todo.push(' ');
+        todo.push_str(&entry.short_sha);
+        todo.push(' ');
+        todo.push_str(&entry.subject);
+        todo.push('\n');
+    }
+
+    // Write the todo to a temporary file.
+    let tmp_dir = std::env::temp_dir();
+    let todo_path = tmp_dir.join("gitshrub_rebase_todo");
+    let mut file = std::fs::File::create(&todo_path)
+        .map_err(|e| format!("Failed to create rebase todo file: {}", e))?;
+    file.write_all(todo.as_bytes())
+        .map_err(|e| format!("Failed to write rebase todo file: {}", e))?;
+    drop(file);
+
+    let todo_path_str = todo_path.to_string_lossy().to_string();
+
+    // Use `cp` as the sequence editor: it copies our todo file over the
+    // one git provides, effectively replacing the interactive editor.
+    let seq_editor = format!("cp {} ", todo_path_str);
+
+    let output = Command::new("git")
+        .args(["rebase", "-i", base_sha])
+        .env("GIT_SEQUENCE_EDITOR", &seq_editor)
+        .current_dir(repo_path)
+        .output()
+        .map_err(|e| format!("Failed to execute git rebase: {}", e))?;
+
+    // Clean up the temp file (best effort).
+    let _ = std::fs::remove_file(&todo_path);
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        // Check if it's a conflict (rebase paused, not fully failed).
+        if stderr.contains("could not apply")
+            || stderr.contains("CONFLICT")
+            || stdout.contains("could not apply")
+        {
+            return Err(format!("Rebase paused due to conflicts. {}", stderr));
+        }
+        return Err(format!("git rebase -i failed: {}", stderr));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(stdout)
 }

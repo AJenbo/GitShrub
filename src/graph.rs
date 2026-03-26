@@ -205,8 +205,8 @@ pub fn compute_graph(commits: &[Commit]) -> Vec<GraphRow> {
                         .collect();
 
                     let mut found = false;
-                    for scan_idx in (idx + 1)..commits.len() {
-                        let candidate = &commits[scan_idx].full_sha;
+                    for (scan_idx, commit) in commits.iter().enumerate().skip(idx + 1) {
+                        let candidate = &commit.full_sha;
                         let already_taken = lanes.iter().any(|(s, _)| s == candidate)
                             || effective_parents.iter().any(|p| p == candidate);
                         if already_taken {
@@ -878,12 +878,12 @@ mod tests {
         // gets a new lane at col 2.
 
         let commits = vec![
-            make_commit("4bcccc", &["b30190", "f38d68"]),       // merge
+            make_commit("4bcccc", &["b30190", "f38d68"]), // merge
             make_commit("f38d68", &["2f74ac"]),
             make_commit("2f74ac", &["f55d23"]),
-            make_commit("f55d23", &["689e81", "f422a4"]),       // nested merge, 689e81 NOT in list
-            make_commit("53f905", &["2a5388"]),                 // orphan, NOT in list
-            make_commit("a95b3f", &["dacdd3"]),                 // orphan, NOT in list
+            make_commit("f55d23", &["689e81", "f422a4"]), // nested merge, 689e81 NOT in list
+            make_commit("53f905", &["2a5388"]),           // orphan, NOT in list
+            make_commit("a95b3f", &["dacdd3"]),           // orphan, NOT in list
             make_commit("b30190", &["a90a82"]),
             make_commit("a90a82", &["ff336c"]),
             make_commit("ff336c", &["caa789"]),
@@ -955,13 +955,13 @@ mod tests {
         // 503e7d or any commit reachable from 3add1e.
 
         let commits = vec![
-            make_commit("e12c43", &["462a63", "3add1e"]),  // merge, 462a63 NOT in list
+            make_commit("e12c43", &["462a63", "3add1e"]), // merge, 462a63 NOT in list
             make_commit("3add1e", &["503e7d"]),
             make_commit("503e7d", &["e3ec7d"]),
-            make_commit("e3ec7d", &["3add76"]),             // parent NOT in list
-            make_commit("8cd740", &["731755"]),              // parent NOT in list
-            make_commit("a8b65f", &["9bf15f"]),              // parent visible (far down)
-            make_commit("f9eb5a", &["b3f3ba"]),              // master side
+            make_commit("e3ec7d", &["3add76"]), // parent NOT in list
+            make_commit("8cd740", &["731755"]), // parent NOT in list
+            make_commit("a8b65f", &["9bf15f"]), // parent visible (far down)
+            make_commit("f9eb5a", &["b3f3ba"]), // master side
             make_commit("b3f3ba", &["4271ff"]),
             make_commit("4271ff", &["e2cdcb"]),
             make_commit("e2cdcb", &["9bf15f"]),

@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::git::{self, Commit, DiffOutput};
+use crate::git::{self, Commit, DiffOutput, RebaseEntry};
 use crate::graph::{self, GraphRow};
 use crate::ui;
 
@@ -73,6 +73,14 @@ pub struct App {
     /// The index of the "anchor" for shift+click range selection.
     /// Set to the last plain-clicked or ctrl+clicked index.
     pub selection_anchor: Option<usize>,
+
+    /// When Some, the interactive rebase dialog is open. Contains the base
+    /// SHA (the commit onto which we are rebasing) and the branch name.
+    pub rebase_base: Option<(String, String)>,
+
+    /// The list of commits in the rebase dialog, editable by the user.
+    /// Ordered oldest-first (same order as git rebase-todo).
+    pub rebase_entries: Vec<RebaseEntry>,
 }
 
 impl App {
@@ -113,6 +121,8 @@ impl App {
             new_branch_name: String::new(),
             multi_selection: BTreeSet::new(),
             selection_anchor: None,
+            rebase_base: None,
+            rebase_entries: Vec::new(),
         };
 
         app.refresh_commits();
@@ -146,6 +156,8 @@ impl App {
             new_branch_name: String::new(),
             multi_selection: BTreeSet::new(),
             selection_anchor: None,
+            rebase_base: None,
+            rebase_entries: Vec::new(),
         }
     }
 
@@ -260,12 +272,8 @@ impl App {
 
         let count = shas.len();
         match git::cherry_pick_multiple(&self.repo_path, &shas) {
-            Ok(applied) => {
-                self.status_message = Some(format!(
-                    "Cherry-picked {} commit{}.",
-                    applied,
-                    if applied == 1 { "" } else { "s" }
-                ));
+            Ok(_applied) => {
+                self.status_message = None;
                 self.current_branch =
                     git::current_branch(&self.repo_path).unwrap_or_else(|_| "detached".into());
             }
@@ -338,17 +346,23 @@ impl eframe::App for App {
         // Create branch name input dialog.
         self.show_create_branch_dialog(ctx);
 
+        // Interactive rebase dialog.
+        self.show_rebase_dialog(ctx);
+
         // Error/status banner at the top
+        let mut clear_status = false;
         if let Some(ref msg) = self.status_message {
             egui::TopBottomPanel::top("status_bar").show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.colored_label(egui::Color32::from_rgb(255, 180, 100), format!("⚠ {}", msg));
-                    if ui.small_button("✕").clicked() {
-                        // Can't clear here due to borrow, handled below
+                    ui.colored_label(egui::Color32::from_rgb(255, 180, 100), msg.as_str());
+                    if ui.button("Dismiss").clicked() {
+                        clear_status = true;
                     }
                 });
             });
-            // TODO: add a timer or dismiss button that works with borrow checker
+        }
+        if clear_status {
+            self.status_message = None;
         }
 
         // Bottom panel: commit info + diff + file list.
@@ -374,6 +388,182 @@ impl eframe::App for App {
 }
 
 impl App {
+    /// Open the interactive rebase dialog for a given branch base.
+    pub fn open_rebase_dialog(&mut self, base_sha: &str, branch: &str) {
+        match git::load_rebase_commits(&self.repo_path, base_sha) {
+            Ok(entries) => {
+                self.rebase_base = Some((base_sha.to_string(), branch.to_string()));
+                self.rebase_entries = entries;
+            }
+            Err(e) => {
+                self.status_message = Some(e);
+            }
+        }
+    }
+
+    /// Show the interactive rebase dialog when rebase_base is set.
+    fn show_rebase_dialog(&mut self, ctx: &egui::Context) {
+        let (base_sha, branch) = match self.rebase_base.clone() {
+            Some(b) => b,
+            None => return,
+        };
+
+        let mut confirmed = false;
+        let mut open = true;
+
+        // Handle Escape outside the window closure to avoid borrow conflict with .open().
+        let escape_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+        if escape_pressed {
+            self.rebase_base = None;
+            self.rebase_entries.clear();
+            return;
+        }
+
+        egui::Window::new("Interactive Rebase")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(true)
+            .default_width(600.0)
+            .default_height(400.0)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "Rebase onto {} (branch: {})",
+                    &base_sha[..base_sha.len().min(12)],
+                    branch
+                ));
+                ui.add_space(4.0);
+                ui.label("Use the arrow buttons to reorder. Choose an action for each commit.");
+
+                ui.add_space(8.0);
+
+                // Column headers.
+                ui.horizontal(|ui| {
+                    ui.add_space(52.0); // Space for move buttons
+                    ui.label(egui::RichText::new("Action").strong().monospace());
+                    ui.add_space(60.0);
+                    ui.label(egui::RichText::new("SHA").strong().monospace());
+                    ui.add_space(40.0);
+                    ui.label(egui::RichText::new("Message").strong().monospace());
+                });
+                ui.separator();
+
+                // Scrollable commit list.
+                let mut swap: Option<(usize, usize)> = None;
+                let entry_count = self.rebase_entries.len();
+
+                egui::ScrollArea::vertical()
+                    .id_salt("rebase_entries_scroll")
+                    .max_height(300.0)
+                    .show(ui, |ui| {
+                        for i in 0..self.rebase_entries.len() {
+                            // Read all fields we need before any mutable borrows.
+                            let current_action = self.rebase_entries[i].action;
+                            let short_sha = self.rebase_entries[i].short_sha.clone();
+                            let subject = self.rebase_entries[i].subject.clone();
+
+                            let mut new_action: Option<git::RebaseAction> = None;
+
+                            ui.horizontal(|ui| {
+                                // Move up button (disabled for first row).
+                                if ui
+                                    .add_enabled(
+                                        i > 0,
+                                        egui::Button::new("Up").min_size(egui::vec2(24.0, 20.0)),
+                                    )
+                                    .clicked()
+                                {
+                                    swap = Some((i, i - 1));
+                                }
+
+                                // Move down button (disabled for last row).
+                                if ui
+                                    .add_enabled(
+                                        i + 1 < entry_count,
+                                        egui::Button::new("Dn").min_size(egui::vec2(24.0, 20.0)),
+                                    )
+                                    .clicked()
+                                {
+                                    swap = Some((i, i + 1));
+                                }
+
+                                // Action dropdown.
+                                egui::ComboBox::from_id_salt(ui.id().with(("rebase_action", i)))
+                                    .selected_text(current_action.label())
+                                    .width(70.0)
+                                    .show_ui(ui, |ui| {
+                                        for action in git::RebaseAction::ALL {
+                                            if ui
+                                                .selectable_label(
+                                                    current_action == action,
+                                                    action.label(),
+                                                )
+                                                .clicked()
+                                            {
+                                                new_action = Some(action);
+                                            }
+                                        }
+                                    });
+
+                                // SHA.
+                                ui.label(
+                                    egui::RichText::new(&short_sha)
+                                        .monospace()
+                                        .color(egui::Color32::from_rgb(180, 180, 100)),
+                                );
+
+                                // Subject.
+                                ui.label(
+                                    egui::RichText::new(&subject)
+                                        .monospace()
+                                        .color(egui::Color32::from_rgb(220, 220, 220)),
+                                );
+                            });
+
+                            // Apply action change after the row closure.
+                            if let Some(action) = new_action {
+                                self.rebase_entries[i].action = action;
+                            }
+                        }
+                    });
+
+                // Apply swap after iteration.
+                if let Some((src, dst)) = swap {
+                    let entry = self.rebase_entries.remove(src);
+                    self.rebase_entries.insert(dst, entry);
+                }
+
+                ui.add_space(12.0);
+                if ui.button("OK").clicked() {
+                    confirmed = true;
+                }
+            });
+
+        if confirmed {
+            let entries = self.rebase_entries.clone();
+            let base = base_sha.clone();
+            self.rebase_base = None;
+            self.rebase_entries.clear();
+
+            match git::rebase_interactive(&self.repo_path, &base, &entries) {
+                Ok(_) => {
+                    self.status_message = None;
+                    self.current_branch =
+                        git::current_branch(&self.repo_path).unwrap_or_else(|_| "detached".into());
+                }
+                Err(e) => {
+                    self.status_message = Some(e);
+                }
+            }
+            self.refresh_commits();
+            self.select_branch_commit();
+        } else if !open {
+            // The X button was clicked.
+            self.rebase_base = None;
+            self.rebase_entries.clear();
+        }
+    }
+
     /// Show the branch name input dialog when a CreateBranch action is pending.
     fn show_create_branch_dialog(&mut self, ctx: &egui::Context) {
         let sha = match self.create_branch_sha.clone() {

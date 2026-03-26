@@ -84,11 +84,11 @@
 
 ## Milestone 9: Interactive Rebase Dialog
 
-- [ ] Right-click a branch → "Interactive rebase..."
-- [ ] Modal dialog listing commits from HEAD back to the selected base
-- [ ] Drag and drop to reorder commits in the list
-- [ ] Per-commit action dropdown: pick, reword, edit, squash, fixup, drop
-- [ ] "OK" generates and executes `git rebase -i` with the specified sequence
+- [x] Right-click a branch → "Interactive rebase..."
+- [x] Modal dialog listing commits from HEAD back to the selected base
+- [x] Drag and drop to reorder commits in the list
+- [x] Per-commit action dropdown: pick, reword, edit, squash, fixup, drop
+- [x] "OK" generates and executes `git rebase -i` with the specified sequence
 - [ ] Handle conflicts: show status, allow continue/abort from the UI
 
 ## Milestone 10: Abort / Cancel Operations
