@@ -396,12 +396,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                         app.run_git_action(|repo| git::delete_branch(repo, &b));
                                         ui.close();
                                     }
-                                    if ui.button("Interactive rebase...").clicked() {
-                                        let sha = full_sha.clone();
-                                        let b = (*branch).clone();
-                                        app.open_rebase_dialog(&sha, &b);
-                                        ui.close();
-                                    }
                                 },
                             );
                         }
@@ -417,12 +411,6 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                         app.run_git_action(|repo| git::checkout_branch(repo, &b));
                                         ui.close();
                                     }
-                                    if ui.button("Interactive rebase...").clicked() {
-                                        let sha = full_sha.clone();
-                                        let b = (*branch).clone();
-                                        app.open_rebase_dialog(&sha, &b);
-                                        ui.close();
-                                    }
                                 },
                             );
                         }
@@ -433,6 +421,16 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     // Generic commit operations (always shown).
                     if ui.button("Create branch here...").clicked() {
                         app.create_branch_sha = Some(full_sha.clone());
+                        ui.close();
+                    }
+                    if ui.button("Rebase onto here").clicked() {
+                        let sha = full_sha.clone();
+                        app.run_git_action(|repo| git::rebase(repo, &sha));
+                        ui.close();
+                    }
+                    if ui.button("Interactive rebase onto here...").clicked() {
+                        let sha = full_sha.clone();
+                        app.open_rebase_dialog(&sha, &app.current_branch.clone());
                         ui.close();
                     }
 

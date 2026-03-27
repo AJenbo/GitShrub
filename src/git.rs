@@ -466,6 +466,11 @@ pub fn load_rebase_commits(repo_path: &str, base_sha: &str) -> Result<Vec<Rebase
     Ok(entries)
 }
 
+/// Rebase the current branch onto the given commit SHA (non-interactive).
+pub fn rebase(repo_path: &str, onto_sha: &str) -> Result<String, String> {
+    run_git(repo_path, &["rebase", onto_sha])
+}
+
 /// Execute an interactive rebase using the given sequence of entries.
 ///
 /// This works by writing a rebase-todo script to a temporary file and
