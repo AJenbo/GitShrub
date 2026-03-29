@@ -128,6 +128,8 @@ pub fn current_branch(repo_path: &str) -> Result<String, String> {
 /// - `show_all`: if true, passes `--all` to show all branches.
 /// - `revision`: if Some, shows history for that branch/tag/ref instead of HEAD.
 /// - `path_filter`: if Some, appends `-- <path>` to filter by file/directory.
+/// - `extra_shas`: additional SHAs to include as starting points (e.g. orphaned
+///   reflog commits). Git will topo-sort and deduplicate them with the rest.
 ///
 /// We use `git log` with `--format` using ASCII separators so we can parse
 /// fields reliably, and `--decorate=short` piped through a separate ref lookup.
@@ -136,6 +138,7 @@ pub fn load_commits(
     show_all: bool,
     revision: Option<&str>,
     path_filter: Option<&str>,
+    extra_shas: &[String],
 ) -> Result<Vec<Commit>, String> {
     // Use %x00 (null) as field separator and %x01 (SOH) as record separator.
     // These cannot appear in commit messages so parsing is reliable.
@@ -159,6 +162,11 @@ pub fn load_commits(
 
     if let Some(rev) = revision {
         real_args.push(rev.into());
+    }
+
+    // Add extra starting-point SHAs (e.g. orphaned reflog commits).
+    for sha in extra_shas {
+        real_args.push(sha.clone());
     }
 
     if let Some(path) = path_filter {
@@ -224,6 +232,60 @@ pub fn load_commits(
     }
 
     Ok(commits)
+}
+
+/// Parse the reflog and return orphaned SHAs (not reachable from normal refs)
+/// along with their reflog labels for display.
+///
+/// First does a cheap check: loads all reflog SHAs, runs them through
+/// `git log` together with the normal refs, then compares to find which
+/// SHAs wouldn't have been loaded without the reflog. Returns those SHAs
+/// and a label map so the caller can annotate the commits after loading.
+pub fn load_reflog_orphans(
+    repo_path: &str,
+) -> Result<(Vec<String>, std::collections::HashMap<String, String>), String> {
+    use std::collections::{HashMap, HashSet};
+
+    // Get reflog entries: SHA, reflog selector, reflog subject.
+    let reflog_output = run_git(
+        repo_path,
+        &["reflog", "--format=%H%x00%gd%x00%gs%x01"],
+    )?;
+
+    // Collect unique SHAs and build a label for each.
+    // We keep only the first (most recent) reflog label per SHA.
+    let mut orphan_labels: HashMap<String, String> = HashMap::new();
+    let mut reflog_shas: Vec<String> = Vec::new();
+    let mut seen = HashSet::new();
+
+    for record in reflog_output.split('\x01') {
+        let record = record.trim();
+        if record.is_empty() {
+            continue;
+        }
+        let fields: Vec<&str> = record.split('\0').collect();
+        if fields.len() < 3 {
+            continue;
+        }
+        let sha = fields[0].trim().to_string();
+        let selector = fields[1].trim(); // e.g. "HEAD@{3}"
+        let action = fields[2].trim(); // e.g. "commit (amend): message"
+
+        if seen.insert(sha.clone()) {
+            // Build a short label like "HEAD@{3} commit (amend)"
+            // Strip the commit message from the action (keep only the action type).
+            let action_type = if let Some(colon_pos) = action.find(':') {
+                action[..colon_pos].trim()
+            } else {
+                action
+            };
+            let label = format!("{} {}", selector, action_type);
+            orphan_labels.insert(sha.clone(), label);
+            reflog_shas.push(sha);
+        }
+    }
+
+    Ok((reflog_shas, orphan_labels))
 }
 
 /// Parse the %D decoration string into a list of ref names.

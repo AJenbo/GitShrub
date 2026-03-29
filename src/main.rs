@@ -10,7 +10,7 @@ mod graph;
 mod ui;
 
 fn main() -> eframe::Result<()> {
-    let (show_all, revision, path_filter, repo_result) = parse_args();
+    let (show_all, show_reflog, revision, path_filter, repo_result) = parse_args();
 
     let (title, make_app): (String, Box<dyn FnOnce() -> app::App + Send>) = match repo_result {
         Ok(repo_path) => {
@@ -19,7 +19,7 @@ fn main() -> eframe::Result<()> {
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "GitShrub".to_string());
 
-            let t = match (&path_filter, show_all) {
+            let mut t = match (&path_filter, show_all) {
                 (Some(path), true) => {
                     format!("GitShrub - {} - {} (all branches)", repo_name, path)
                 }
@@ -27,10 +27,13 @@ fn main() -> eframe::Result<()> {
                 (None, true) => format!("GitShrub - {} (all branches)", repo_name),
                 (None, false) => format!("GitShrub - {}", repo_name),
             };
+            if show_reflog {
+                t.push_str(" + reflog");
+            }
 
             (
                 t,
-                Box::new(move || app::App::new(repo_path, show_all, revision, path_filter)),
+                Box::new(move || app::App::new(repo_path, show_all, show_reflog, revision, path_filter)),
             )
         }
         Err(error) => (
@@ -61,15 +64,17 @@ fn main() -> eframe::Result<()> {
 }
 
 /// Parse CLI arguments.
-/// Returns (show_all, revision, path_filter, repo_path).
+/// Returns (show_all, show_reflog, revision, path_filter, repo_path).
 ///
 /// Follows gitk conventions:
 /// - Args before `--` are treated as revisions (branch/tag names).
 /// - Args after `--` are treated as file/directory paths.
 /// - `--all` shows all branches.
-fn parse_args() -> (bool, Option<String>, Option<String>, Result<String, String>) {
+/// - `--reflog` shows reflog entries.
+fn parse_args() -> (bool, bool, Option<String>, Option<String>, Result<String, String>) {
     let args: Vec<String> = env::args().skip(1).collect();
     let mut show_all = false;
+    let mut show_reflog = false;
     let mut revision = None;
     let mut path_filter = None;
     let mut after_separator = false;
@@ -85,11 +90,13 @@ fn parse_args() -> (bool, Option<String>, Option<String>, Result<String, String>
 
         match arg.as_str() {
             "--all" => show_all = true,
+            "--reflog" => show_reflog = true,
             "--" => after_separator = true,
             "--help" | "-h" => {
-                eprintln!("Usage: gitshrub [--all] [<revision>] [-- <path>]");
+                eprintln!("Usage: gitshrub [--all] [--reflog] [<revision>] [-- <path>]");
                 eprintln!();
                 eprintln!("  --all         Show all branches (default: current branch only)");
+                eprintln!("  --reflog      Show reflog entries (orphaned commits from amend, reset, rebase)");
                 eprintln!("  <revision>    Show history for a specific branch or tag");
                 eprintln!("  -- <path>     Show history for a specific file or directory");
                 process::exit(0);
@@ -112,7 +119,7 @@ fn parse_args() -> (bool, Option<String>, Option<String>, Result<String, String>
 
     let repo_result = git::verify_repo(&cwd);
 
-    (show_all, revision, path_filter, repo_result)
+    (show_all, show_reflog, revision, path_filter, repo_result)
 }
 
 /// Load the application icon from the embedded PNG.

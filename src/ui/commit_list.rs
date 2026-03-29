@@ -202,7 +202,14 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
                 // Ref labels (branches and tags).
                 for ref_name in &refs {
-                    let (label_text, bg_color, text_color) = if ref_name.starts_with("tag: ") {
+                    let (label_text, bg_color, text_color) = if ref_name.contains("@{") {
+                        // Reflog entry (e.g. "HEAD@{3} commit (amend)")
+                        (
+                            format!("({})", ref_name),
+                            egui::Color32::from_rgb(60, 40, 15),
+                            egui::Color32::from_rgb(210, 150, 60),
+                        )
+                    } else if ref_name.starts_with("tag: ") {
                         let tag = ref_name.trim_start_matches("tag: ");
                         (
                             format!("<{}>", tag),

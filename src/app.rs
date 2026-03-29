@@ -26,6 +26,9 @@ pub struct App {
     /// Whether to show all branches (--all flag).
     pub show_all: bool,
 
+    /// Whether to show reflog entries (--reflog flag).
+    pub show_reflog: bool,
+
     /// Optional revision (branch/tag) to show history for.
     pub revision: Option<String>,
 
@@ -104,6 +107,7 @@ impl App {
     pub fn new(
         repo_path: String,
         show_all: bool,
+        show_reflog: bool,
         revision: Option<String>,
         path_filter: Option<String>,
     ) -> Self {
@@ -117,6 +121,7 @@ impl App {
         let mut app = App {
             repo_path,
             show_all,
+            show_reflog,
             revision,
             path_filter,
             commits: Vec::new(),
@@ -154,6 +159,7 @@ impl App {
         App {
             repo_path: String::new(),
             show_all: false,
+            show_reflog: false,
             revision: None,
             path_filter: None,
             commits: Vec::new(),
@@ -182,13 +188,38 @@ impl App {
 
     /// Reload the commit list from git.
     pub fn refresh_commits(&mut self) {
+        // If --reflog is enabled, discover orphaned reflog SHAs first so we
+        // can pass them as extra starting points to `git log`. This lets git
+        // handle topo-sorting and deduplication in a single pass.
+        let (extra_shas, reflog_labels) = if self.show_reflog {
+            match git::load_reflog_orphans(&self.repo_path) {
+                Ok(result) => result,
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to load reflog: {}", e));
+                    (Vec::new(), std::collections::HashMap::new())
+                }
+            }
+        } else {
+            (Vec::new(), std::collections::HashMap::new())
+        };
+
         match git::load_commits(
             &self.repo_path,
             self.show_all,
             self.revision.as_deref(),
             self.path_filter.as_deref(),
+            &extra_shas,
         ) {
-            Ok(commits) => {
+            Ok(mut commits) => {
+                // Annotate commits with reflog labels where applicable.
+                if !reflog_labels.is_empty() {
+                    for commit in &mut commits {
+                        if let Some(label) = reflog_labels.get(&commit.full_sha) {
+                            commit.refs.push(label.clone());
+                        }
+                    }
+                }
+
                 self.graph_rows = graph::compute_graph(&commits);
                 // Store the longest author name length for column sizing.
                 self.max_author_chars = commits

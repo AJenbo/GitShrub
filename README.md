@@ -11,6 +11,7 @@ A git history viewer that doesn't look broken. It won't win any design awards, b
 ## What makes it different
 
 - **No confirmation dialogs** — actions execute immediately. You're an adult.
+- **Reflog in the graph** — `--reflog` shows orphaned commits (pre-amend, pre-reset, pre-rebase) right in the tree. The safety net for the no-confirmation policy — your old commits are still in the garbage pile, you just need to find them.
 - **Multi cherry-pick with reorder** — select multiple commits, drag them into the order you want, pick or skip each one.
 - **Big abort button** — when you're in the middle of a rebase gone wrong and can't remember the right `--abort` flag, there's a banner at the top with a button. It also shows continue when applicable.
 - **Right-click origin/master** — you don't need a local tracking branch to checkout. If you can see it in the graph, you can act on it.
@@ -30,6 +31,7 @@ A git history viewer that doesn't look broken. It won't win any design awards, b
 ```sh
 gitshrub                          # current branch
 gitshrub --all                    # all branches
+gitshrub --reflog                 # show orphaned commits
 gitshrub feature/login            # specific branch or tag
 gitshrub -- path/to/file.rs      # file or directory history
 gitshrub --all main -- src/       # combine them
