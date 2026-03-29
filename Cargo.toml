@@ -1,9 +1,15 @@
 [package]
 name = "gitshrub"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
-description = "GitShrub - A lightweight Git history viewer"
+description = "The \"don't touch my garbage\" git client"
 license = "MIT"
+repository = "https://github.com/AJenbo/GitShrub"
+homepage = "https://github.com/AJenbo/GitShrub"
+readme = "README.md"
+keywords = ["git", "gui", "history", "viewer", "rebase"]
+categories = ["command-line-utilities", "development-tools", "visualization"]
+exclude = ["gitk/", "docs/", "AGENTS.md"]
 
 [dependencies]
 eframe = { version = "0.34", default-features = true }
