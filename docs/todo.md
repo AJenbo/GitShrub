@@ -80,13 +80,13 @@
 - [x] Right-click selection → "Cherry-pick N commits"
 - [x] Execute cherry-picks in topological order (`git cherry-pick <sha1> <sha2> ...`)
 - [x] Show progress / conflict state if a cherry-pick fails mid-way
-- [ ] Stretch: drag and drop commits to reorder before cherry-picking
+- [x] Stretch: drag and drop commits to reorder before cherry-picking
 
 ## Milestone 9: Interactive Rebase Dialog
 
 - [x] Right-click a branch → "Interactive rebase..."
 - [x] Modal dialog listing commits from HEAD back to the selected base
-- [ ] Drag and drop to reorder commits in the list
+- [x] Drag and drop to reorder commits in the list
 - [x] Per-commit action dropdown: pick, reword, edit, squash, fixup, drop
 - [x] "OK" generates and executes `git rebase -i` with the specified sequence
 - [x] Handle conflicts: show status, allow continue/abort from the UI

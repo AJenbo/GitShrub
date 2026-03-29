@@ -24,7 +24,6 @@ flags — the GUI stays simple.
 | Language         | Rust (edition 2024)             | Fast, single binary, strong typing       |
 | GUI framework    | egui + eframe                   | Immediate mode, GPU-accelerated, simple  |
 | Git interaction  | `std::process::Command` → `git` | Like gitk — no libgit2 complexity        |
-| File dialogs     | rfd                             | Native OS file dialogs                   |
 
 ## CLI Interface
 
@@ -106,7 +105,7 @@ Right-clicking a **branch/tag label** or a **commit row** opens a context menu:
 
 After any mutating action, the commit list is refreshed.
 
-### Multi-Select (Future)
+### Multi-Select
 
 The commit list supports multi-select for batch operations:
 
@@ -114,21 +113,23 @@ The commit list supports multi-select for batch operations:
 - **Shift+Click** — select a range
 - **Ctrl+Click** — toggle individual commits in/out of selection
 
-Right-clicking a multi-selection offers "Cherry-pick N commits", executed in topological order.
+Right-clicking a multi-selection offers "Cherry-pick N commits". The cherry-pick dialog shows a drag-and-drop reorderable list where each commit can be set to Pick or Skip.
 
-### Interactive Rebase Dialog (Future)
+### Interactive Rebase Dialog
 
 Right-clicking a branch label offers "Interactive rebase...". This opens a modal with:
 
-- Draggable commit list (reorder by drag and drop)
+- Drag-and-drop reorderable commit list
 - Per-commit action dropdown: pick, reword, edit, squash, fixup, drop
 - OK button generates and runs the `git rebase -i` sequence
 
-### Abort Operations (Future)
+### Abort Operations
 
 When an operation is in progress (rebase, cherry-pick, merge, bisect, revert),
 a banner appears at the top of the window with a one-click abort button that runs
-the appropriate cancel command (`git rebase --abort`, `git cherry-pick --abort`, etc.).
+the appropriate cancel command (`git rebase --abort`, `git cherry-pick --abort`,
+`git merge --abort`, `git revert --abort`, etc.). A "Continue" button is also shown
+where applicable.
 
 ## Module Structure
 

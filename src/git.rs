@@ -6,7 +6,6 @@ use std::process::Command;
 #[derive(Debug, Clone)]
 pub struct Commit {
     pub full_sha: String,
-    #[expect(dead_code, reason = "reserved for future use in commit list display")]
     pub short_sha: String,
     pub parents: Vec<String>,
     pub author_name: String,
@@ -87,7 +86,6 @@ impl std::fmt::Display for RebaseAction {
 #[derive(Debug, Clone)]
 pub struct RebaseEntry {
     /// The full SHA of the commit.
-    #[expect(dead_code, reason = "reserved for conflict handling and future use")]
     pub sha: String,
     /// Short SHA for display.
     pub short_sha: String,

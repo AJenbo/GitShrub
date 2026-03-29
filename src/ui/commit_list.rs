@@ -355,10 +355,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     ui.separator();
 
                     if ui
-                        .button(format!("Cherry-pick {} commits", multi_count))
+                        .button(format!("Cherry-pick {} commits…", multi_count))
                         .clicked()
                     {
-                        app.cherry_pick_multi_selection();
+                        app.open_cherry_pick_dialog();
                         ui.close();
                     }
                 } else {

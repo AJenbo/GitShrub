@@ -1,41 +1,41 @@
 # GitShrub 🥦
 
+The "don't touch my garbage" git client.
+
 <p align="center">
-  <img src="docs/assets/bramble.png" alt="Bramble the GitShrub possum" width="512" height="512" />
+  <img src="docs/assets/screenshot.png" alt="GitShrub screenshot" width="900" />
 </p>
 
-Sit back, trim your shrub, and enjoy a good overview of your project.
+A git history viewer that doesn't look broken. It won't win any design awards, but copy-paste works and the UI doesn't look like Windows Vista lost its theme folder. It has a possum as its mascot because it caters to a certain work style — it will bite you if you do things wrong, but you won't if you're me.
 
-A lightweight Git history viewer built with Rust and egui. Think gitk, but with a modern UI that doesn't look like it escaped from 1997.
+## What makes it different
 
-## Why?
+- **No confirmation dialogs** — actions execute immediately. You're an adult.
+- **Multi cherry-pick with reorder** — select multiple commits, drag them into the order you want, pick or skip each one.
+- **Big abort button** — when you're in the middle of a rebase gone wrong and can't remember the right `--abort` flag, there's a banner at the top with a button. It also shows continue when applicable.
+- **Right-click origin/master** — you don't need a local tracking branch to checkout. If you can see it in the graph, you can act on it.
+- **Interactive rebase from the graph** — right-click any commit, reorder with drag-and-drop, set actions per commit (pick, reword, edit, squash, fixup, drop).
 
-| Tool | Problem |
-|------|---------|
-| gitk | Works but Tcl/Tk looks like garbage |
-| Sourcetree | No Linux support |
-| GitKraken | Fantastic but slow (Electron) |
-| gitg | Somehow slow for a simple app |
-| tig/lazygit | TUIs are not for everyone |
-| git cola | Great, but relies on gitk for tree view |
+## Features
 
-GitShrub fills the gap: a fast, good-looking, lightweight commit history viewer for Linux (and beyond).
+- Commit graph with color-coded branch/merge lines
+- Branch labels `[master]` and tag labels `<v1.0>` rendered inline
+- Unified diff viewer with file list sidebar
+- Multi-select with Shift+Click and Ctrl+Click
+- Keyboard navigation (Up/Down/Home/End/PgUp/PgDn)
+- Detects in-progress rebase, cherry-pick, merge, bisect, and revert
 
 ## Usage
 
 ```sh
-# Show current branch history
-gitshrub
-
-# Show all branch history
-gitshrub --all
-
-# Show history for a specific file or directory
-gitshrub path/to/file.rs
-
-# Combine them
-gitshrub --all path/to/file.rs
+gitshrub                          # current branch
+gitshrub --all                    # all branches
+gitshrub feature/login            # specific branch or tag
+gitshrub -- path/to/file.rs      # file or directory history
+gitshrub --all main -- src/       # combine them
 ```
+
+Run from inside a git repository.
 
 ## Building
 
@@ -45,13 +45,9 @@ cargo build --release
 
 The binary will be at `target/release/gitshrub`. Only runtime dependency is `git` on your PATH.
 
-## Tech Stack
-
-- **Rust.** Fast, single binary, strong typing
-- **egui/eframe.** Immediate mode GPU-accelerated GUI
-- **git CLI.** Shells out to git for all operations (no libgit2)
-
-See [docs/architecture.md](docs/architecture.md) for design details and [docs/todo.md](docs/todo.md) for the roadmap.
+<p align="center">
+  <img src="docs/assets/bramble.png" alt="Bramble the GitShrub possum" width="256" height="256" />
+</p>
 
 ## License
 
