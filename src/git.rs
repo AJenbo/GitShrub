@@ -372,13 +372,32 @@ pub fn verify_repo(path: &str) -> Result<String, String> {
 // --- Branch operations ---
 
 /// Checkout a branch by name.
-/// If the branch is a remote like `origin/foo`, checks out the local name `foo`.
-/// Git will auto-create a tracking branch if it doesn't exist yet (DWIM mode).
+///
+/// If `branch` is a remote ref like `origin/foo`:
+///   - If the local branch `foo` already exists, check it out directly.
+///   - Otherwise, create a local tracking branch with `git checkout --track origin/foo`.
+///
+/// If `branch` is already a local name, just check it out.
 pub fn checkout_branch(repo_path: &str, branch: &str) -> Result<String, String> {
     if let Some(local) = branch.split('/').next_back()
         && branch.contains('/')
     {
-        return run_git(repo_path, &["checkout", local]);
+        // Check if the local branch already exists.
+        let local_exists = run_git(
+            repo_path,
+            &[
+                "show-ref",
+                "--verify",
+                "--quiet",
+                &format!("refs/heads/{}", local),
+            ],
+        )
+        .is_ok();
+        if local_exists {
+            return run_git(repo_path, &["checkout", local]);
+        }
+        // Local branch doesn't exist — create it tracking the remote ref.
+        return run_git(repo_path, &["checkout", "--track", branch]);
     }
     run_git(repo_path, &["checkout", branch])
 }

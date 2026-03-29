@@ -6,8 +6,8 @@ description = "GitShrub - A lightweight Git history viewer"
 license = "MIT"
 
 [dependencies]
-eframe = { version = "0.33", default-features = true }
-egui = "0.33"
+eframe = { version = "0.34", default-features = true }
+egui = "0.34"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 [profile.release]

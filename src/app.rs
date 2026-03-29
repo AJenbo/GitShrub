@@ -306,16 +306,27 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Ctrl+Q to quit.
         if ctx.input(|i| i.key_pressed(egui::Key::Q) && i.modifiers.command) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
 
+        // Update window title
+        if self.startup_error.is_some() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title("GitShrub".to_string()));
+        } else {
+            let title = self.window_title();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+        }
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+
         // If the app was created with a startup error, show only that.
         if let Some(ref error) = self.startup_error {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Title("GitShrub".to_string()));
-            egui::CentralPanel::default().show(ctx, |ui| {
+            egui::CentralPanel::default().show_inside(ui, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space(ui.available_height() * 0.3);
                     ui.heading(
@@ -339,20 +350,16 @@ impl eframe::App for App {
             return;
         }
 
-        // Update window title
-        let title = self.window_title();
-        ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
-
         // Create branch name input dialog.
-        self.show_create_branch_dialog(ctx);
+        self.show_create_branch_dialog(&ctx);
 
         // Interactive rebase dialog.
-        self.show_rebase_dialog(ctx);
+        self.show_rebase_dialog(&ctx);
 
         // Error/status banner at the top
         let mut clear_status = false;
         if let Some(ref msg) = self.status_message {
-            egui::TopBottomPanel::top("status_bar").show(ctx, |ui| {
+            egui::Panel::top("status_bar").show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.colored_label(egui::Color32::from_rgb(255, 180, 100), msg.as_str());
                     if ui.button("Dismiss").clicked() {
@@ -369,19 +376,19 @@ impl eframe::App for App {
         // Use a filled frame so the panel background covers any commit list
         // text that bleeds past the panel boundary above.
         let panel_frame = egui::Frame::new()
-            .fill(ctx.style().visuals.panel_fill)
+            .fill(ctx.global_style().visuals.panel_fill)
             .inner_margin(4.0);
-        egui::TopBottomPanel::bottom("bottom_panel")
+        egui::Panel::bottom("bottom_panel")
             .resizable(true)
-            .min_height(150.0)
-            .default_height(350.0)
+            .min_size(150.0)
+            .default_size(350.0)
             .frame(panel_frame)
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 self.render_bottom_pane(ui);
             });
 
         // Central panel: commit list (takes remaining space)
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             ui::commit_list::show(self, ui);
         });
     }
