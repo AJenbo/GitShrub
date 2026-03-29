@@ -33,7 +33,9 @@ fn main() -> eframe::Result<()> {
 
             (
                 t,
-                Box::new(move || app::App::new(repo_path, show_all, show_reflog, revision, path_filter)),
+                Box::new(move || {
+                    app::App::new(repo_path, show_all, show_reflog, revision, path_filter)
+                }),
             )
         }
         Err(error) => (
@@ -71,7 +73,13 @@ fn main() -> eframe::Result<()> {
 /// - Args after `--` are treated as file/directory paths.
 /// - `--all` shows all branches.
 /// - `--reflog` shows reflog entries.
-fn parse_args() -> (bool, bool, Option<String>, Option<String>, Result<String, String>) {
+fn parse_args() -> (
+    bool,
+    bool,
+    Option<String>,
+    Option<String>,
+    Result<String, String>,
+) {
     let args: Vec<String> = env::args().skip(1).collect();
     let mut show_all = false;
     let mut show_reflog = false;
@@ -96,7 +104,9 @@ fn parse_args() -> (bool, bool, Option<String>, Option<String>, Result<String, S
                 eprintln!("Usage: gitshrub [--all] [--reflog] [<revision>] [-- <path>]");
                 eprintln!();
                 eprintln!("  --all         Show all branches (default: current branch only)");
-                eprintln!("  --reflog      Show reflog entries (orphaned commits from amend, reset, rebase)");
+                eprintln!(
+                    "  --reflog      Show reflog entries (orphaned commits from amend, reset, rebase)"
+                );
                 eprintln!("  <revision>    Show history for a specific branch or tag");
                 eprintln!("  -- <path>     Show history for a specific file or directory");
                 process::exit(0);

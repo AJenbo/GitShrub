@@ -250,10 +250,7 @@ pub fn load_reflog_orphans(
     use std::collections::{HashMap, HashSet};
 
     // Get reflog entries: SHA, reflog selector, reflog subject.
-    let reflog_output = run_git(
-        repo_path,
-        &["reflog", "--format=%H%x00%gd%x00%gs%x01"],
-    )?;
+    let reflog_output = run_git(repo_path, &["reflog", "--format=%H%x00%gd%x00%gs%x01"])?;
 
     // Collect unique SHAs and build a label for each.
     // We keep only the first (most recent) reflog label per SHA.
@@ -485,6 +482,11 @@ pub fn delete_tag(repo_path: &str, tag: &str) -> Result<String, String> {
     run_git(repo_path, &["tag", "-d", tag])
 }
 
+/// Remove a remote.
+pub fn remove_remote(repo_path: &str, remote: &str) -> Result<String, String> {
+    run_git(repo_path, &["remote", "remove", remote])
+}
+
 // --- Commit operations ---
 
 /// Reset the current branch to the given SHA with `--mixed` (keeps working tree).
@@ -609,11 +611,7 @@ pub fn rebase_interactive(
     let reword_messages: Vec<&str> = entries
         .iter()
         .filter(|e| e.action == RebaseAction::Reword)
-        .map(|e| {
-            e.new_subject
-                .as_deref()
-                .unwrap_or(e.subject.as_str())
-        })
+        .map(|e| e.new_subject.as_deref().unwrap_or(e.subject.as_str()))
         .collect();
 
     // Build a GIT_EDITOR script if there are any reword entries.
@@ -739,7 +737,10 @@ impl InProgressOp {
 
     /// Whether this operation supports `--continue`.
     pub fn supports_continue(&self) -> bool {
-        matches!(self, InProgressOp::Rebase | InProgressOp::CherryPick | InProgressOp::Revert)
+        matches!(
+            self,
+            InProgressOp::Rebase | InProgressOp::CherryPick | InProgressOp::Revert
+        )
     }
 
     /// Description of the continue action.

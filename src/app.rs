@@ -10,10 +10,7 @@ use crate::ui;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DialogMode {
     /// Interactive rebase: all actions available, base SHA + branch stored.
-    Rebase {
-        base_sha: String,
-        branch: String,
-    },
+    Rebase { base_sha: String, branch: String },
     /// Cherry-pick: only "Pick" action, entries are commits to apply.
     CherryPick,
 }
@@ -487,37 +484,33 @@ impl eframe::App for App {
                 });
             });
         }
-        if abort_clicked {
-            if let Some(ref op) = self.in_progress_op.clone() {
-                match git::abort_op(&self.repo_path, op) {
-                    Ok(_) => {
-                        self.status_message = None;
-                    }
-                    Err(e) => {
-                        self.status_message = Some(format!("Abort failed: {}", e));
-                    }
+        if abort_clicked && let Some(ref op) = self.in_progress_op.clone() {
+            match git::abort_op(&self.repo_path, op) {
+                Ok(_) => {
+                    self.status_message = None;
                 }
-                self.current_branch =
-                    git::current_branch(&self.repo_path).unwrap_or_else(|_| "detached".into());
-                self.refresh_commits();
-                self.select_branch_commit();
+                Err(e) => {
+                    self.status_message = Some(format!("Abort failed: {}", e));
+                }
             }
+            self.current_branch =
+                git::current_branch(&self.repo_path).unwrap_or_else(|_| "detached".into());
+            self.refresh_commits();
+            self.select_branch_commit();
         }
-        if continue_clicked {
-            if let Some(ref op) = self.in_progress_op.clone() {
-                match git::continue_op(&self.repo_path, op) {
-                    Ok(_) => {
-                        self.status_message = None;
-                    }
-                    Err(e) => {
-                        self.status_message = Some(format!("Continue failed: {}", e));
-                    }
+        if continue_clicked && let Some(ref op) = self.in_progress_op.clone() {
+            match git::continue_op(&self.repo_path, op) {
+                Ok(_) => {
+                    self.status_message = None;
                 }
-                self.current_branch =
-                    git::current_branch(&self.repo_path).unwrap_or_else(|_| "detached".into());
-                self.refresh_commits();
-                self.select_branch_commit();
+                Err(e) => {
+                    self.status_message = Some(format!("Continue failed: {}", e));
+                }
             }
+            self.current_branch =
+                git::current_branch(&self.repo_path).unwrap_or_else(|_| "detached".into());
+            self.refresh_commits();
+            self.select_branch_commit();
         }
 
         // Error/status banner
@@ -696,11 +689,11 @@ impl App {
                                 // Move the layer so the row follows the cursor,
                                 // preserving the initial grab offset (no jump).
                                 if let Some(pointer_pos) = ui.ctx().pointer_interact_pos() {
-                                    let grab_offset: f32 = ui.ctx().data(|d| {
-                                        d.get_temp(grab_offset_id).unwrap_or(0.0)
-                                    });
-                                    let delta_y = pointer_pos.y - grab_offset
-                                        - resp.response.rect.top();
+                                    let grab_offset: f32 = ui
+                                        .ctx()
+                                        .data(|d| d.get_temp(grab_offset_id).unwrap_or(0.0));
+                                    let delta_y =
+                                        pointer_pos.y - grab_offset - resp.response.rect.top();
                                     let delta = Vec2::new(0.0, delta_y);
                                     ui.ctx().transform_layer_shapes(
                                         layer_id,
@@ -749,30 +742,20 @@ impl App {
                             }
 
                             // Check if something is being dragged over this row.
-                            if let Some(dragged_idx) =
-                                row_response.dnd_hover_payload::<usize>()
-                            {
+                            if let Some(dragged_idx) = row_response.dnd_hover_payload::<usize>() {
                                 let src = *dragged_idx;
                                 if src != i {
                                     // Draw a line to indicate drop position.
                                     let rect = row_response.rect;
-                                    let y = if src < i {
-                                        rect.bottom()
-                                    } else {
-                                        rect.top()
-                                    };
-                                    let stroke = Stroke::new(
-                                        2.0,
-                                        egui::Color32::from_rgb(100, 180, 255),
-                                    );
+                                    let y = if src < i { rect.bottom() } else { rect.top() };
+                                    let stroke =
+                                        Stroke::new(2.0, egui::Color32::from_rgb(100, 180, 255));
                                     ui.painter().hline(rect.x_range(), y, stroke);
                                 }
                             }
 
                             // Check if something was dropped on this row.
-                            if let Some(dragged_idx) =
-                                row_response.dnd_release_payload::<usize>()
-                            {
+                            if let Some(dragged_idx) = row_response.dnd_release_payload::<usize>() {
                                 let src = *dragged_idx;
                                 if src != i {
                                     drop_target = Some((src, i));
@@ -853,7 +836,6 @@ impl App {
         new_action: &mut Option<RebaseAction>,
         edit_subject: &mut Option<String>,
     ) {
-
         ui.horizontal(|ui| {
             // --- Drag handle: a painted grip icon (three horizontal lines). ---
             // Allocate space, then interact with our explicit handle_id so that
@@ -863,11 +845,11 @@ impl App {
             let handle_response = ui.interact(handle_rect, handle_id, egui::Sense::drag());
 
             // Store the grab offset on drag start so the row doesn't jump.
-            if handle_response.drag_started() {
-                if let Some(pos) = ui.ctx().pointer_interact_pos() {
-                    let offset = pos.y - handle_rect.top();
-                    ui.ctx().data_mut(|d| d.insert_temp(grab_offset_id, offset));
-                }
+            if handle_response.drag_started()
+                && let Some(pos) = ui.ctx().pointer_interact_pos()
+            {
+                let offset = pos.y - handle_rect.top();
+                ui.ctx().data_mut(|d| d.insert_temp(grab_offset_id, offset));
             }
 
             // Paint three horizontal grip lines.
@@ -992,7 +974,8 @@ impl App {
 
                 ui.add_space(8.0);
                 let text_edit = ui.text_edit_singleline(&mut self.new_tag_name);
-                let already_focused: bool = ui.ctx().data(|d| d.get_temp(focus_id).unwrap_or(false));
+                let already_focused: bool =
+                    ui.ctx().data(|d| d.get_temp(focus_id).unwrap_or(false));
                 if !already_focused {
                     text_edit.request_focus();
                     ui.ctx().data_mut(|d| d.insert_temp(focus_id, true));
@@ -1055,7 +1038,8 @@ impl App {
 
                 ui.add_space(8.0);
                 let text_edit = ui.text_edit_singleline(&mut self.new_branch_name);
-                let already_focused: bool = ui.ctx().data(|d| d.get_temp(focus_id).unwrap_or(false));
+                let already_focused: bool =
+                    ui.ctx().data(|d| d.get_temp(focus_id).unwrap_or(false));
                 if !already_focused {
                     text_edit.request_focus();
                     ui.ctx().data_mut(|d| d.insert_temp(focus_id, true));

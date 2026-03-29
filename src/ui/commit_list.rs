@@ -395,9 +395,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         .map(|r| r.trim_start_matches("tag: ").to_string())
                         .collect();
 
-                    if !local_branches.is_empty()
-                        || !remote_branches.is_empty()
-                        || !tags.is_empty()
+                    if !local_branches.is_empty() || !remote_branches.is_empty() || !tags.is_empty()
                     {
                         for branch in &local_branches {
                             ui.menu_button(
@@ -428,6 +426,19 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                     if ui.button("Checkout").clicked() {
                                         let b = (*branch).clone();
                                         app.run_git_action(|repo| git::checkout_branch(repo, &b));
+                                        ui.close();
+                                    }
+                                    // Extract the remote name (e.g. "origin" from "origin/main").
+                                    if let Some(remote) = branch.split('/').next()
+                                        && ui
+                                            .button(
+                                                egui::RichText::new(format!("Remove {}", remote))
+                                                    .color(egui::Color32::from_rgb(255, 100, 100)),
+                                            )
+                                            .clicked()
+                                    {
+                                        let r = remote.to_string();
+                                        app.run_git_action(|repo| git::remove_remote(repo, &r));
                                         ui.close();
                                     }
                                 },
