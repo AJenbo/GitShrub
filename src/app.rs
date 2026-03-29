@@ -324,6 +324,7 @@ impl App {
                     short_sha: c.short_sha.clone(),
                     subject: c.subject.clone(),
                     action: RebaseAction::Pick,
+                    new_subject: None,
                 })
             })
             .collect();
@@ -645,6 +646,7 @@ impl App {
                             let current_action = self.dialog_entries[i].action;
                             let short_sha = self.dialog_entries[i].short_sha.clone();
                             let subject = self.dialog_entries[i].subject.clone();
+                            let mut edit_subject = self.dialog_entries[i].new_subject.clone();
 
                             let mut new_action: Option<git::RebaseAction> = None;
 
@@ -673,6 +675,7 @@ impl App {
                                             &subject,
                                             is_cherry_pick,
                                             &mut new_action,
+                                            &mut edit_subject,
                                         );
                                     },
                                 );
@@ -705,6 +708,7 @@ impl App {
                                         &subject,
                                         is_cherry_pick,
                                         &mut new_action,
+                                        &mut edit_subject,
                                     );
                                 });
                                 resp.response
@@ -713,6 +717,22 @@ impl App {
                             // Apply action change after the row closure.
                             if let Some(action) = new_action {
                                 self.dialog_entries[i].action = action;
+                                // When switching to reword, initialise the
+                                // editable subject from the original if needed.
+                                if action == RebaseAction::Reword
+                                    && self.dialog_entries[i].new_subject.is_none()
+                                {
+                                    self.dialog_entries[i].new_subject =
+                                        Some(self.dialog_entries[i].subject.clone());
+                                }
+                                // When switching away from reword, clear it.
+                                if action != RebaseAction::Reword {
+                                    self.dialog_entries[i].new_subject = None;
+                                }
+                            } else {
+                                // No action change this frame; write back any
+                                // text field edits from the reword input.
+                                self.dialog_entries[i].new_subject = edit_subject;
                             }
 
                             // Check if something is being dragged over this row.
@@ -818,6 +838,7 @@ impl App {
         subject: &str,
         is_cherry_pick: bool,
         new_action: &mut Option<RebaseAction>,
+        edit_subject: &mut Option<String>,
     ) {
 
         ui.horizontal(|ui| {
@@ -912,17 +933,26 @@ impl App {
                     .color(egui::Color32::from_rgb(180, 180, 100)),
             );
 
-            // --- Subject (dimmed if dropped/skipped) ---
-            let subject_color = if current_action == RebaseAction::Drop {
-                egui::Color32::from_rgb(120, 120, 120)
+            // --- Subject (editable text field for reword, label otherwise) ---
+            if current_action == RebaseAction::Reword {
+                if let Some(text) = edit_subject {
+                    let text_edit = egui::TextEdit::singleline(text)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(300.0);
+                    ui.add(text_edit);
+                }
             } else {
-                egui::Color32::from_rgb(220, 220, 220)
-            };
-            ui.label(
-                egui::RichText::new(subject)
-                    .monospace()
-                    .color(subject_color),
-            );
+                let subject_color = if current_action == RebaseAction::Drop {
+                    egui::Color32::from_rgb(120, 120, 120)
+                } else {
+                    egui::Color32::from_rgb(220, 220, 220)
+                };
+                ui.label(
+                    egui::RichText::new(subject)
+                        .monospace()
+                        .color(subject_color),
+                );
+            }
         });
     }
 

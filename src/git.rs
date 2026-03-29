@@ -93,6 +93,9 @@ pub struct RebaseEntry {
     pub subject: String,
     /// The action to apply during rebase.
     pub action: RebaseAction,
+    /// If set, the new commit message to use (for reword).
+    /// When None, the original message is kept.
+    pub new_subject: Option<String>,
 }
 
 /// Run a git command and return stdout as a String.
@@ -535,6 +538,7 @@ pub fn load_rebase_commits(repo_path: &str, base_sha: &str) -> Result<Vec<Rebase
             short_sha: fields[1].to_string(),
             subject: fields[2].to_string(),
             action: RebaseAction::Pick,
+            new_subject: None,
         });
     }
 
@@ -555,6 +559,11 @@ pub fn rebase(repo_path: &str, onto_sha: &str) -> Result<String, String> {
 /// This works by writing a rebase-todo script to a temporary file and
 /// setting `GIT_SEQUENCE_EDITOR` to a command that copies that file into
 /// the rebase todo, replacing the default editor interaction.
+///
+/// For `reword` entries that have `new_subject` set, we generate a shell
+/// script as `GIT_EDITOR` that writes the new message into the commit
+/// message file git provides. The script uses a counter file to track
+/// which reword it's on, so multiple rewords in one rebase work correctly.
 pub fn rebase_interactive(
     repo_path: &str,
     base_sha: &str,
@@ -586,15 +595,87 @@ pub fn rebase_interactive(
     // one git provides, effectively replacing the interactive editor.
     let seq_editor = format!("cp {} ", todo_path_str);
 
-    let output = Command::new("git")
-        .args(["rebase", "-i", base_sha])
+    // Collect new messages for reword entries (in order).
+    let reword_messages: Vec<&str> = entries
+        .iter()
+        .filter(|e| e.action == RebaseAction::Reword)
+        .map(|e| {
+            e.new_subject
+                .as_deref()
+                .unwrap_or(e.subject.as_str())
+        })
+        .collect();
+
+    // Build a GIT_EDITOR script if there are any reword entries.
+    // The script uses a counter file to serve messages in order.
+    let editor_path = tmp_dir.join("gitshrub_reword_editor.sh");
+    let counter_path = tmp_dir.join("gitshrub_reword_counter");
+    let has_rewords = !reword_messages.is_empty();
+
+    if has_rewords {
+        // Write each message to its own numbered file.
+        for (i, msg) in reword_messages.iter().enumerate() {
+            let msg_path = tmp_dir.join(format!("gitshrub_reword_msg_{}", i));
+            std::fs::write(&msg_path, msg)
+                .map_err(|e| format!("Failed to write reword message file: {}", e))?;
+        }
+
+        // Initialize counter to 0.
+        std::fs::write(&counter_path, "0")
+            .map_err(|e| format!("Failed to write counter file: {}", e))?;
+
+        // Write the editor script. It reads the counter, copies the
+        // corresponding message file into $1 (the commit message file
+        // git passes to the editor), then increments the counter.
+        let counter_path_str = counter_path.to_string_lossy().to_string();
+        let msg_prefix = tmp_dir.join("gitshrub_reword_msg_");
+        let msg_prefix_str = msg_prefix.to_string_lossy().to_string();
+
+        let editor_script = format!(
+            "#!/bin/sh\n\
+             N=$(cat \"{}\")\n\
+             cp \"{}$N\" \"$1\"\n\
+             echo $((N + 1)) > \"{}\"\n",
+            counter_path_str, msg_prefix_str, counter_path_str,
+        );
+
+        std::fs::write(&editor_path, &editor_script)
+            .map_err(|e| format!("Failed to write editor script: {}", e))?;
+
+        // Make it executable.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(&editor_path, perms)
+                .map_err(|e| format!("Failed to make editor script executable: {}", e))?;
+        }
+    }
+
+    let editor_path_str = editor_path.to_string_lossy().to_string();
+
+    let mut cmd = Command::new("git");
+    cmd.args(["rebase", "-i", base_sha])
         .env("GIT_SEQUENCE_EDITOR", &seq_editor)
-        .current_dir(repo_path)
+        .current_dir(repo_path);
+
+    if has_rewords {
+        cmd.env("GIT_EDITOR", &editor_path_str);
+    }
+
+    let output = cmd
         .output()
         .map_err(|e| format!("Failed to execute git rebase: {}", e))?;
 
-    // Clean up the temp file (best effort).
+    // Clean up temp files (best effort).
     let _ = std::fs::remove_file(&todo_path);
+    if has_rewords {
+        let _ = std::fs::remove_file(&editor_path);
+        let _ = std::fs::remove_file(&counter_path);
+        for i in 0..reword_messages.len() {
+            let _ = std::fs::remove_file(tmp_dir.join(format!("gitshrub_reword_msg_{}", i)));
+        }
+    }
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
