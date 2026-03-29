@@ -552,3 +552,110 @@ pub fn rebase_interactive(
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     Ok(stdout)
 }
+
+/// Represents a git operation that is currently in progress (paused, e.g. due to conflicts).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InProgressOp {
+    Rebase,
+    CherryPick,
+    Merge,
+    Bisect,
+    Revert,
+}
+
+impl InProgressOp {
+    /// Human-readable label for display in the UI.
+    pub fn label(&self) -> &'static str {
+        match self {
+            InProgressOp::Rebase => "Rebase",
+            InProgressOp::CherryPick => "Cherry-pick",
+            InProgressOp::Merge => "Merge",
+            InProgressOp::Bisect => "Bisect",
+            InProgressOp::Revert => "Revert",
+        }
+    }
+
+    /// Description of the abort action.
+    pub fn abort_label(&self) -> &'static str {
+        match self {
+            InProgressOp::Rebase => "Abort rebase",
+            InProgressOp::CherryPick => "Abort cherry-pick",
+            InProgressOp::Merge => "Abort merge",
+            InProgressOp::Bisect => "Reset bisect",
+            InProgressOp::Revert => "Abort revert",
+        }
+    }
+
+    /// Whether this operation supports `--continue`.
+    pub fn supports_continue(&self) -> bool {
+        matches!(self, InProgressOp::Rebase | InProgressOp::CherryPick | InProgressOp::Revert)
+    }
+
+    /// Description of the continue action.
+    pub fn continue_label(&self) -> &'static str {
+        match self {
+            InProgressOp::Rebase => "Continue rebase",
+            InProgressOp::CherryPick => "Continue cherry-pick",
+            InProgressOp::Revert => "Continue revert",
+            _ => "Continue",
+        }
+    }
+}
+
+/// Detect any in-progress git operation by checking for marker files/directories
+/// inside the `.git` directory of the repository.
+pub fn detect_in_progress_op(repo_path: &str) -> Option<InProgressOp> {
+    // Get the .git directory path (handles worktrees too).
+    let git_dir = match run_git(repo_path, &["rev-parse", "--git-dir"]) {
+        Ok(d) => {
+            let trimmed = d.trim().to_string();
+            if Path::new(&trimmed).is_absolute() {
+                trimmed
+            } else {
+                format!("{}/{}", repo_path, trimmed)
+            }
+        }
+        Err(_) => return None,
+    };
+    let git_path = Path::new(&git_dir);
+
+    // Check in priority order (rebase is most complex and should be first).
+    if git_path.join("rebase-merge").exists() || git_path.join("rebase-apply").exists() {
+        return Some(InProgressOp::Rebase);
+    }
+    if git_path.join("CHERRY_PICK_HEAD").exists() {
+        return Some(InProgressOp::CherryPick);
+    }
+    if git_path.join("MERGE_HEAD").exists() {
+        return Some(InProgressOp::Merge);
+    }
+    if git_path.join("BISECT_LOG").exists() {
+        return Some(InProgressOp::Bisect);
+    }
+    if git_path.join("REVERT_HEAD").exists() {
+        return Some(InProgressOp::Revert);
+    }
+
+    None
+}
+
+/// Abort the given in-progress operation.
+pub fn abort_op(repo_path: &str, op: &InProgressOp) -> Result<String, String> {
+    match op {
+        InProgressOp::Rebase => run_git(repo_path, &["rebase", "--abort"]),
+        InProgressOp::CherryPick => run_git(repo_path, &["cherry-pick", "--abort"]),
+        InProgressOp::Merge => run_git(repo_path, &["merge", "--abort"]),
+        InProgressOp::Bisect => run_git(repo_path, &["bisect", "reset"]),
+        InProgressOp::Revert => run_git(repo_path, &["revert", "--abort"]),
+    }
+}
+
+/// Continue the given in-progress operation (only valid for rebase, cherry-pick, revert).
+pub fn continue_op(repo_path: &str, op: &InProgressOp) -> Result<String, String> {
+    match op {
+        InProgressOp::Rebase => run_git(repo_path, &["rebase", "--continue"]),
+        InProgressOp::CherryPick => run_git(repo_path, &["cherry-pick", "--continue"]),
+        InProgressOp::Revert => run_git(repo_path, &["revert", "--continue"]),
+        _ => Err(format!("{} does not support --continue", op.label())),
+    }
+}

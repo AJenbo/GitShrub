@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::git::{self, Commit, DiffOutput, RebaseEntry};
+use crate::git::{self, Commit, DiffOutput, InProgressOp, RebaseEntry};
 use crate::graph::{self, GraphRow};
 use crate::ui;
 
@@ -81,6 +81,9 @@ pub struct App {
     /// The list of commits in the rebase dialog, editable by the user.
     /// Ordered oldest-first (same order as git rebase-todo).
     pub rebase_entries: Vec<RebaseEntry>,
+
+    /// If set, a git operation is currently in progress (e.g. paused due to conflicts).
+    pub in_progress_op: Option<InProgressOp>,
 }
 
 impl App {
@@ -123,9 +126,11 @@ impl App {
             selection_anchor: None,
             rebase_base: None,
             rebase_entries: Vec::new(),
+            in_progress_op: None,
         };
 
         app.refresh_commits();
+        app.in_progress_op = git::detect_in_progress_op(&app.repo_path);
         app
     }
 
@@ -158,6 +163,7 @@ impl App {
             selection_anchor: None,
             rebase_base: None,
             rebase_entries: Vec::new(),
+            in_progress_op: None,
         }
     }
 
@@ -190,6 +196,7 @@ impl App {
         self.scroll_to_diff_line = None;
         self.multi_selection.clear();
         self.selection_anchor = None;
+        self.in_progress_op = git::detect_in_progress_op(&self.repo_path);
     }
 
     /// Select a commit by index and load its diff.
@@ -357,6 +364,80 @@ impl eframe::App for App {
         self.show_rebase_dialog(&ctx);
 
         // Error/status banner at the top
+        // In-progress operation banner (shown above status bar).
+        let mut abort_clicked = false;
+        let mut continue_clicked = false;
+        if let Some(ref op) = self.in_progress_op {
+            let op_label = op.label().to_string();
+            let abort_label = op.abort_label().to_string();
+            let can_continue = op.supports_continue();
+            let continue_label = op.continue_label().to_string();
+
+            egui::Panel::top("op_in_progress_bar").show_inside(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("⚠ {} in progress", op_label))
+                            .strong()
+                            .color(egui::Color32::from_rgb(255, 220, 100))
+                            .size(14.0),
+                    );
+                    ui.add_space(12.0);
+                    if ui
+                        .button(
+                            egui::RichText::new(&abort_label)
+                                .color(egui::Color32::from_rgb(255, 100, 100)),
+                        )
+                        .clicked()
+                    {
+                        abort_clicked = true;
+                    }
+                    if can_continue
+                        && ui
+                            .button(
+                                egui::RichText::new(&continue_label)
+                                    .color(egui::Color32::from_rgb(100, 220, 100)),
+                            )
+                            .clicked()
+                    {
+                        continue_clicked = true;
+                    }
+                });
+            });
+        }
+        if abort_clicked {
+            if let Some(ref op) = self.in_progress_op.clone() {
+                match git::abort_op(&self.repo_path, op) {
+                    Ok(_) => {
+                        self.status_message = None;
+                    }
+                    Err(e) => {
+                        self.status_message = Some(format!("Abort failed: {}", e));
+                    }
+                }
+                self.current_branch =
+                    git::current_branch(&self.repo_path).unwrap_or_else(|_| "detached".into());
+                self.refresh_commits();
+                self.select_branch_commit();
+            }
+        }
+        if continue_clicked {
+            if let Some(ref op) = self.in_progress_op.clone() {
+                match git::continue_op(&self.repo_path, op) {
+                    Ok(_) => {
+                        self.status_message = None;
+                    }
+                    Err(e) => {
+                        self.status_message = Some(format!("Continue failed: {}", e));
+                    }
+                }
+                self.current_branch =
+                    git::current_branch(&self.repo_path).unwrap_or_else(|_| "detached".into());
+                self.refresh_commits();
+                self.select_branch_commit();
+            }
+        }
+
+        // Error/status banner
         let mut clear_status = false;
         if let Some(ref msg) = self.status_message {
             egui::Panel::top("status_bar").show_inside(ui, |ui| {

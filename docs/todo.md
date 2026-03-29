@@ -86,19 +86,19 @@
 
 - [x] Right-click a branch → "Interactive rebase..."
 - [x] Modal dialog listing commits from HEAD back to the selected base
-- [x] Drag and drop to reorder commits in the list
+- [ ] Drag and drop to reorder commits in the list
 - [x] Per-commit action dropdown: pick, reword, edit, squash, fixup, drop
 - [x] "OK" generates and executes `git rebase -i` with the specified sequence
-- [ ] Handle conflicts: show status, allow continue/abort from the UI
+- [x] Handle conflicts: show status, allow continue/abort from the UI
 
 ## Milestone 10: Abort / Cancel Operations
 
-- [ ] Detect in-progress operations (rebase, cherry-pick, merge, bisect, revert)
-- [ ] Show a visible "operation in progress" banner in the UI
-- [ ] One-click abort: runs the appropriate cancel command:
+- [x] Detect in-progress operations (rebase, cherry-pick, merge, bisect, revert)
+- [x] Show a visible "operation in progress" banner in the UI
+- [x] One-click abort: runs the appropriate cancel command:
   - `git rebase --abort`
   - `git cherry-pick --abort`
   - `git merge --abort`
   - `git bisect reset`
   - `git revert --abort`
-- [ ] Refresh commit list after abort
+- [x] Refresh commit list after abort
