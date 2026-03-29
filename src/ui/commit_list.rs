@@ -381,12 +381,24 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     // Branch/tag operations (shown only when refs are present).
                     let local_branches: Vec<&String> = refs
                         .iter()
-                        .filter(|r| !r.starts_with("tag: ") && !r.contains('/'))
+                        .filter(|r| {
+                            !r.starts_with("tag: ") && !r.contains('/') && !r.contains("@{")
+                        })
                         .collect();
-                    let remote_branches: Vec<&String> =
-                        refs.iter().filter(|r| r.contains('/')).collect();
+                    let remote_branches: Vec<&String> = refs
+                        .iter()
+                        .filter(|r| r.contains('/') && !r.contains("@{"))
+                        .collect();
+                    let tags: Vec<String> = refs
+                        .iter()
+                        .filter(|r| r.starts_with("tag: "))
+                        .map(|r| r.trim_start_matches("tag: ").to_string())
+                        .collect();
 
-                    if !local_branches.is_empty() || !remote_branches.is_empty() {
+                    if !local_branches.is_empty()
+                        || !remote_branches.is_empty()
+                        || !tags.is_empty()
+                    {
                         for branch in &local_branches {
                             ui.menu_button(
                                 egui::RichText::new(format!("[{}]", branch))
@@ -422,12 +434,31 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             );
                         }
 
+                        for tag in &tags {
+                            ui.menu_button(
+                                egui::RichText::new(format!("<{}>", tag))
+                                    .monospace()
+                                    .color(egui::Color32::from_rgb(240, 200, 80)),
+                                |ui| {
+                                    if ui.button("Delete tag").clicked() {
+                                        let t = tag.clone();
+                                        app.run_git_action(|repo| git::delete_tag(repo, &t));
+                                        ui.close();
+                                    }
+                                },
+                            );
+                        }
+
                         ui.separator();
                     }
 
                     // Generic commit operations (always shown).
                     if ui.button("Create branch here...").clicked() {
                         app.create_branch_sha = Some(full_sha.clone());
+                        ui.close();
+                    }
+                    if ui.button("Create tag here...").clicked() {
+                        app.create_tag_sha = Some(full_sha.clone());
                         ui.close();
                     }
                     if ui.button("Rebase onto here").clicked() {

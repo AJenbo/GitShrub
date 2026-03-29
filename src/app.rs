@@ -83,6 +83,12 @@ pub struct App {
     /// Text field for the new branch name in the CreateBranch dialog.
     pub new_branch_name: String,
 
+    /// SHA for a pending "Create tag" action (needs name input).
+    pub create_tag_sha: Option<String>,
+
+    /// Text field for the new tag name in the CreateTag dialog.
+    pub new_tag_name: String,
+
     /// Indices of multi-selected commits (for batch operations like cherry-pick).
     /// Kept sorted via BTreeSet so iteration is always in list order.
     pub multi_selection: BTreeSet<usize>,
@@ -140,6 +146,8 @@ impl App {
             visible_commit_range: None,
             create_branch_sha: None,
             new_branch_name: String::new(),
+            create_tag_sha: None,
+            new_tag_name: String::new(),
             multi_selection: BTreeSet::new(),
             selection_anchor: None,
             dialog_mode: None,
@@ -178,6 +186,8 @@ impl App {
             visible_commit_range: None,
             create_branch_sha: None,
             new_branch_name: String::new(),
+            create_tag_sha: None,
+            new_tag_name: String::new(),
             multi_selection: BTreeSet::new(),
             selection_anchor: None,
             dialog_mode: None,
@@ -429,6 +439,9 @@ impl eframe::App for App {
 
         // Create branch name input dialog.
         self.show_create_branch_dialog(&ctx);
+
+        // Create tag name input dialog.
+        self.show_create_tag_dialog(&ctx);
 
         // Commit list dialog (interactive rebase or cherry-pick).
         self.show_commit_list_dialog(&ctx);
@@ -956,6 +969,69 @@ impl App {
         });
     }
 
+    /// Show the tag name input dialog when a CreateTag action is pending.
+    fn show_create_tag_dialog(&mut self, ctx: &egui::Context) {
+        let sha = match self.create_tag_sha.clone() {
+            Some(s) => s,
+            None => return,
+        };
+
+        let mut confirmed = false;
+        let mut cancelled = false;
+
+        let focus_id = egui::Id::new("create_tag_focus_done");
+        egui::Window::new("Create Tag")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label(format!(
+                    "Create a new tag at {}:",
+                    &sha[..sha.len().min(12)]
+                ));
+
+                ui.add_space(8.0);
+                let text_edit = ui.text_edit_singleline(&mut self.new_tag_name);
+                let already_focused: bool = ui.ctx().data(|d| d.get_temp(focus_id).unwrap_or(false));
+                if !already_focused {
+                    text_edit.request_focus();
+                    ui.ctx().data_mut(|d| d.insert_temp(focus_id, true));
+                }
+
+                if text_edit.lost_focus() && !ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    confirmed = true;
+                }
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    cancelled = true;
+                }
+
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    if ui.button("OK").clicked() {
+                        confirmed = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        cancelled = true;
+                    }
+                });
+            });
+
+        if confirmed {
+            let name = self.new_tag_name.trim().to_string();
+            self.create_tag_sha = None;
+            self.new_tag_name.clear();
+            ctx.data_mut(|d| d.remove::<bool>(focus_id));
+            if !name.is_empty() {
+                let sha_clone = sha;
+                self.run_git_action(|repo| git::create_tag(repo, &name, &sha_clone));
+            }
+        } else if cancelled {
+            self.create_tag_sha = None;
+            self.new_tag_name.clear();
+            ctx.data_mut(|d| d.remove::<bool>(focus_id));
+        }
+    }
+
     /// Show the branch name input dialog when a CreateBranch action is pending.
     fn show_create_branch_dialog(&mut self, ctx: &egui::Context) {
         let sha = match self.create_branch_sha.clone() {
@@ -966,6 +1042,7 @@ impl App {
         let mut confirmed = false;
         let mut cancelled = false;
 
+        let focus_id = egui::Id::new("create_branch_focus_done");
         egui::Window::new("Create Branch")
             .collapsible(false)
             .resizable(false)
@@ -978,12 +1055,15 @@ impl App {
 
                 ui.add_space(8.0);
                 let text_edit = ui.text_edit_singleline(&mut self.new_branch_name);
-                text_edit.request_focus();
-
-                if text_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    confirmed = true;
+                let already_focused: bool = ui.ctx().data(|d| d.get_temp(focus_id).unwrap_or(false));
+                if !already_focused {
+                    text_edit.request_focus();
+                    ui.ctx().data_mut(|d| d.insert_temp(focus_id, true));
                 }
 
+                if text_edit.lost_focus() && !ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    confirmed = true;
+                }
                 if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                     cancelled = true;
                 }
@@ -1003,6 +1083,7 @@ impl App {
             let name = self.new_branch_name.trim().to_string();
             self.create_branch_sha = None;
             self.new_branch_name.clear();
+            ctx.data_mut(|d| d.remove::<bool>(focus_id));
             if !name.is_empty() {
                 let sha_clone = sha;
                 self.run_git_action(|repo| git::create_branch(repo, &name, &sha_clone));
@@ -1010,6 +1091,7 @@ impl App {
         } else if cancelled {
             self.create_branch_sha = None;
             self.new_branch_name.clear();
+            ctx.data_mut(|d| d.remove::<bool>(focus_id));
         }
     }
 

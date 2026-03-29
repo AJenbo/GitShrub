@@ -475,6 +475,16 @@ pub fn create_branch(repo_path: &str, name: &str, sha: &str) -> Result<String, S
     run_git(repo_path, &["branch", name, sha])
 }
 
+/// Create a lightweight tag at the given commit SHA.
+pub fn create_tag(repo_path: &str, name: &str, sha: &str) -> Result<String, String> {
+    run_git(repo_path, &["tag", name, sha])
+}
+
+/// Delete a tag.
+pub fn delete_tag(repo_path: &str, tag: &str) -> Result<String, String> {
+    run_git(repo_path, &["tag", "-d", tag])
+}
+
 // --- Commit operations ---
 
 /// Reset the current branch to the given SHA with `--mixed` (keeps working tree).
