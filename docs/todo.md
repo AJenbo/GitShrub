@@ -102,3 +102,45 @@
   - `git bisect reset`
   - `git revert --abort`
 - [x] Refresh commit list after abort
+
+## Milestone 11: Push and Remote Operations
+
+- [x] Menu bar with Push button
+- [x] Push dialog: remote selector, branch name input with autocomplete
+- [x] Smart upstream tracking (set-upstream when pushing new matching branch)
+- [x] Force push confirmation on diverged history
+- [x] Toggle --all and --reflog from the menu bar (no restart needed)
+- [x] Remote branch checkout sets upstream tracking
+- [x] Remove remote from remote branch context menu
+
+---
+
+## Future: Full Git Client
+
+> These milestones aim to replace Git Cola for day-to-day use.
+
+## Milestone 12: External Tool Integration
+
+- [ ] Ctrl+E to open selected file in editor (configurable tool)
+- [ ] Ctrl+D to open selected file in diff application (configurable tool)
+
+## Milestone 13: Project Management
+
+- [ ] Project list (remember project folders)
+- [ ] Add project / open project
+- [ ] Remove a project from the list
+
+## Milestone 14: Commit Mode
+
+- [ ] Commit mode UI with staged / changed / untracked file lists
+- [ ] Commit summary and description fields
+- [ ] Diff view of selected file
+- [ ] Stage selected lines (select lines + S)
+- [ ] Stage selected file (Ctrl+S)
+- [ ] Unstage selected lines (select lines + S when file is in staged group)
+
+## Milestone 15: Misc Operations
+
+- [ ] Refresh button / shortcut
+- [ ] Update submodules
+- [ ] Show stash in commit tree

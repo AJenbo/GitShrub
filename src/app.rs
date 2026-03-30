@@ -103,6 +103,24 @@ pub struct App {
 
     /// If set, a git operation is currently in progress (e.g. paused due to conflicts).
     pub in_progress_op: Option<InProgressOp>,
+
+    /// Whether the push dialog is open.
+    pub push_dialog_open: bool,
+
+    /// List of remotes available for the push dialog.
+    pub push_remotes: Vec<String>,
+
+    /// Index of the selected remote in the push dialog.
+    pub push_selected_remote: usize,
+
+    /// Branches available on the selected remote.
+    pub push_remote_branches: Vec<String>,
+
+    /// The remote branch name the user wants to push to.
+    pub push_branch_name: String,
+
+    /// Whether to show the force-push confirmation prompt.
+    pub push_force_confirm: bool,
 }
 
 impl App {
@@ -150,6 +168,12 @@ impl App {
             dialog_mode: None,
             dialog_entries: Vec::new(),
             in_progress_op: None,
+            push_dialog_open: false,
+            push_remotes: Vec::new(),
+            push_selected_remote: 0,
+            push_remote_branches: Vec::new(),
+            push_branch_name: String::new(),
+            push_force_confirm: false,
         };
 
         app.refresh_commits();
@@ -190,6 +214,12 @@ impl App {
             dialog_mode: None,
             dialog_entries: Vec::new(),
             in_progress_op: None,
+            push_dialog_open: false,
+            push_remotes: Vec::new(),
+            push_selected_remote: 0,
+            push_remote_branches: Vec::new(),
+            push_branch_name: String::new(),
+            push_force_confirm: false,
         }
     }
 
@@ -387,6 +417,265 @@ impl App {
             self.scroll_to_commit_idx = Some(idx);
         }
     }
+
+    /// Open the push dialog, populating remotes and selecting sensible defaults.
+    pub fn open_push_dialog(&mut self) {
+        let remotes = git::list_remotes(&self.repo_path).unwrap_or_default();
+        if remotes.is_empty() {
+            self.status_message = Some("No remotes configured".to_string());
+            return;
+        }
+
+        // Pick the default remote: prefer the one that tracks the current branch,
+        // otherwise fall back to "origin", otherwise the first remote.
+        let tracking = git::get_tracking_branch(&self.repo_path, &self.current_branch);
+        let default_remote_idx = if let Some(ref upstream) = tracking {
+            // upstream is like "origin/main" — extract the remote name.
+            let tracked_remote = upstream.split('/').next().unwrap_or("");
+            remotes
+                .iter()
+                .position(|r| r == tracked_remote)
+                .unwrap_or(0)
+        } else {
+            remotes.iter().position(|r| r == "origin").unwrap_or(0)
+        };
+
+        self.push_selected_remote = default_remote_idx;
+        self.push_remote_branches =
+            git::list_remote_branches(&self.repo_path, &remotes[default_remote_idx])
+                .unwrap_or_default();
+
+        // Default branch name: same as the current local branch.
+        self.push_branch_name = self.current_branch.clone();
+        self.push_remotes = remotes;
+        self.push_force_confirm = false;
+        self.push_dialog_open = true;
+    }
+
+    /// Reload the remote branch list when the user changes the selected remote.
+    fn refresh_push_remote_branches(&mut self) {
+        if let Some(remote) = self.push_remotes.get(self.push_selected_remote) {
+            self.push_remote_branches =
+                git::list_remote_branches(&self.repo_path, remote).unwrap_or_default();
+        }
+    }
+
+    /// Execute the push and handle the result.
+    fn execute_push(&mut self, force: bool) {
+        let remote = match self.push_remotes.get(self.push_selected_remote) {
+            Some(r) => r.clone(),
+            None => return,
+        };
+        let local_branch = self.current_branch.clone();
+        let remote_branch = self.push_branch_name.clone();
+
+        let result = if force {
+            git::push_force(&self.repo_path, &remote, &local_branch, &remote_branch)
+        } else {
+            // Decide whether to set upstream tracking.
+            // Set upstream only when the local branch has no tracking branch yet
+            // AND the remote branch name matches the local branch name.
+            let tracking = git::get_tracking_branch(&self.repo_path, &local_branch);
+            let set_upstream = tracking.is_none() && local_branch == remote_branch;
+            git::push(
+                &self.repo_path,
+                &remote,
+                &local_branch,
+                &remote_branch,
+                set_upstream,
+            )
+        };
+
+        match result {
+            Ok(_) => {
+                self.status_message = None;
+                self.push_dialog_open = false;
+                self.push_force_confirm = false;
+                self.refresh_commits();
+            }
+            Err(e) => {
+                if !force && git::is_diverged_push_error(&e) {
+                    self.push_force_confirm = true;
+                } else {
+                    self.status_message = Some(e);
+                    self.push_dialog_open = false;
+                    self.push_force_confirm = false;
+                }
+            }
+        }
+    }
+
+    /// Render the push dialog as a modal window.
+    fn show_push_dialog(&mut self, ctx: &egui::Context) {
+        if !self.push_dialog_open {
+            return;
+        }
+
+        let mut do_close = false;
+        let mut do_push = false;
+        let mut do_force = false;
+        let mut remote_changed = false;
+
+        egui::Window::new("Push")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.set_min_width(450.0);
+
+                // Header: "Push <branch> to:"
+                ui.horizontal(|ui| {
+                    ui.label("Push");
+                    ui.label(
+                        egui::RichText::new(&self.current_branch)
+                            .monospace()
+                            .strong()
+                            .color(egui::Color32::from_rgb(100, 180, 255)),
+                    );
+                    ui.label("to:");
+                });
+
+                ui.add_space(8.0);
+
+                // Two side-by-side lists: remotes on the left, branches on the right.
+                let list_height = 180.0;
+                ui.horizontal(|ui| {
+                    // --- Remote list ---
+                    ui.vertical(|ui| {
+                        ui.label(
+                            egui::RichText::new("Remote")
+                                .strong()
+                                .color(egui::Color32::from_rgb(180, 180, 180)),
+                        );
+                        egui::Frame::new()
+                            .fill(egui::Color32::from_rgb(30, 30, 35))
+                            .corner_radius(3.0)
+                            .inner_margin(4.0)
+                            .show(ui, |ui| {
+                                egui::ScrollArea::vertical()
+                                    .id_salt("push_remote_list")
+                                    .max_height(list_height)
+                                    .min_scrolled_height(list_height)
+                                    .show(ui, |ui| {
+                                        ui.set_min_width(140.0);
+                                        for (i, remote) in self.push_remotes.iter().enumerate() {
+                                            let is_selected = i == self.push_selected_remote;
+                                            let text = if is_selected {
+                                                egui::RichText::new(remote)
+                                                    .monospace()
+                                                    .color(egui::Color32::from_rgb(100, 180, 255))
+                                            } else {
+                                                egui::RichText::new(remote)
+                                                    .monospace()
+                                                    .color(egui::Color32::from_rgb(200, 200, 200))
+                                            };
+                                            let response = ui.selectable_label(is_selected, text);
+                                            if response.clicked() && !is_selected {
+                                                self.push_selected_remote = i;
+                                                remote_changed = true;
+                                            }
+                                        }
+                                    });
+                            });
+                    });
+
+                    // --- Branch list ---
+                    ui.vertical(|ui| {
+                        ui.label(
+                            egui::RichText::new("Branch")
+                                .strong()
+                                .color(egui::Color32::from_rgb(180, 180, 180)),
+                        );
+                        egui::Frame::new()
+                            .fill(egui::Color32::from_rgb(30, 30, 35))
+                            .corner_radius(3.0)
+                            .inner_margin(4.0)
+                            .show(ui, |ui| {
+                                egui::ScrollArea::vertical()
+                                    .id_salt("push_branch_list")
+                                    .max_height(list_height)
+                                    .min_scrolled_height(list_height)
+                                    .show(ui, |ui| {
+                                        ui.set_min_width(200.0);
+                                        for branch in &self.push_remote_branches {
+                                            let is_selected = *branch == self.push_branch_name;
+                                            let text = if is_selected {
+                                                egui::RichText::new(branch)
+                                                    .monospace()
+                                                    .color(egui::Color32::from_rgb(130, 220, 130))
+                                            } else {
+                                                egui::RichText::new(branch)
+                                                    .monospace()
+                                                    .color(egui::Color32::from_rgb(200, 200, 200))
+                                            };
+                                            let response = ui.selectable_label(is_selected, text);
+                                            if response.clicked() {
+                                                self.push_branch_name = branch.clone();
+                                            }
+                                        }
+                                    });
+                            });
+                    });
+                });
+
+                ui.add_space(8.0);
+
+                // Branch name text field (editable, for typing a new name).
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut self.push_branch_name);
+                });
+
+                ui.add_space(8.0);
+
+                // Force-push confirmation
+                if self.push_force_confirm {
+                    ui.label(
+                        egui::RichText::new("Push was rejected (diverged history). Force push?")
+                            .color(egui::Color32::from_rgb(255, 180, 100)),
+                    );
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        if ui
+                            .button(
+                                egui::RichText::new("Force push")
+                                    .color(egui::Color32::from_rgb(255, 100, 100)),
+                            )
+                            .clicked()
+                        {
+                            do_force = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            do_close = true;
+                        }
+                    });
+                } else {
+                    // Normal push / cancel buttons
+                    ui.horizontal(|ui| {
+                        if ui.button("Push").clicked() {
+                            do_push = true;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            do_close = true;
+                        }
+                    });
+                }
+            });
+
+        if remote_changed {
+            self.refresh_push_remote_branches();
+        }
+
+        if do_push {
+            self.execute_push(false);
+        } else if do_force {
+            self.execute_push(true);
+        }
+
+        if do_close {
+            self.push_dialog_open = false;
+            self.push_force_confirm = false;
+        }
+    }
 }
 
 impl eframe::App for App {
@@ -407,6 +696,9 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+
+        // Push dialog (rendered before layout so it floats on top).
+        self.show_push_dialog(&ctx);
 
         // If the app was created with a startup error, show only that.
         if let Some(ref error) = self.startup_error {
@@ -432,6 +724,31 @@ impl eframe::App for App {
                 });
             });
             return;
+        }
+
+        // Menu bar
+        let mut toggle_all = false;
+        let mut toggle_reflog = false;
+        egui::Panel::top("menu_bar").show_inside(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
+                if ui.button("Push").clicked() {
+                    self.open_push_dialog();
+                }
+                if ui.selectable_label(self.show_all, "All branches").clicked() {
+                    toggle_all = true;
+                }
+                if ui.selectable_label(self.show_reflog, "Reflog").clicked() {
+                    toggle_reflog = true;
+                }
+            });
+        });
+        if toggle_all {
+            self.show_all = !self.show_all;
+            self.refresh_commits();
+        }
+        if toggle_reflog {
+            self.show_reflog = !self.show_reflog;
+            self.refresh_commits();
         }
 
         // Create branch name input dialog.

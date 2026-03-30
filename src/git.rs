@@ -434,7 +434,8 @@ pub fn verify_repo(path: &str) -> Result<String, String> {
 /// Checkout a branch by name.
 ///
 /// If `branch` is a remote ref like `origin/foo`:
-///   - If the local branch `foo` already exists, check it out directly.
+///   - If the local branch `foo` already exists, check it out and set it to
+///     track the remote ref (`git branch --set-upstream-to=origin/foo foo`).
 ///   - Otherwise, create a local tracking branch with `git checkout --track origin/foo`.
 ///
 /// If `branch` is already a local name, just check it out.
@@ -454,7 +455,10 @@ pub fn checkout_branch(repo_path: &str, branch: &str) -> Result<String, String> 
         )
         .is_ok();
         if local_exists {
-            return run_git(repo_path, &["checkout", local]);
+            let result = run_git(repo_path, &["checkout", local]);
+            // Set the upstream so the local branch tracks this remote ref.
+            let _ = run_git(repo_path, &["branch", "--set-upstream-to", branch, local]);
+            return result;
         }
         // Local branch doesn't exist — create it tracking the remote ref.
         return run_git(repo_path, &["checkout", "--track", branch]);
@@ -485,6 +489,94 @@ pub fn delete_tag(repo_path: &str, tag: &str) -> Result<String, String> {
 /// Remove a remote.
 pub fn remove_remote(repo_path: &str, remote: &str) -> Result<String, String> {
     run_git(repo_path, &["remote", "remove", remote])
+}
+
+/// List all configured remotes.
+pub fn list_remotes(repo_path: &str) -> Result<Vec<String>, String> {
+    let output = run_git(repo_path, &["remote"])?;
+    Ok(output
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect())
+}
+
+/// List branches on a given remote (without the remote/ prefix).
+pub fn list_remote_branches(repo_path: &str, remote: &str) -> Result<Vec<String>, String> {
+    let output = run_git(
+        repo_path,
+        &["branch", "-r", "--list", &format!("{}/*", remote)],
+    )?;
+    let prefix = format!("{}/", remote);
+    Ok(output
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .filter_map(|l| {
+            let name = l.trim_start_matches("* ").trim();
+            let stripped = name.strip_prefix(&prefix)?;
+            // Skip the synthetic HEAD pointer.
+            if stripped == "HEAD" || stripped.contains(" -> ") {
+                return None;
+            }
+            Some(stripped.to_string())
+        })
+        .collect())
+}
+
+/// Get the upstream tracking branch for a local branch, if any.
+/// Returns something like "origin/main".
+pub fn get_tracking_branch(repo_path: &str, branch: &str) -> Option<String> {
+    run_git(
+        repo_path,
+        &[
+            "for-each-ref",
+            "--format=%(upstream:short)",
+            &format!("refs/heads/{}", branch),
+        ],
+    )
+    .ok()
+    .map(|s| s.trim().to_string())
+    .filter(|s| !s.is_empty())
+}
+
+/// Push a local branch to a remote branch.
+///
+/// If `set_upstream` is true, adds `--set-upstream` to make the remote branch
+/// the tracking branch for the local one.
+pub fn push(
+    repo_path: &str,
+    remote: &str,
+    local_branch: &str,
+    remote_branch: &str,
+    set_upstream: bool,
+) -> Result<String, String> {
+    let refspec = format!("{}:refs/heads/{}", local_branch, remote_branch);
+    let mut args = vec!["push", remote, &refspec];
+    if set_upstream {
+        args.insert(1, "--set-upstream");
+    }
+    run_git(repo_path, &args)
+}
+
+/// Force-push a local branch to a remote branch.
+pub fn push_force(
+    repo_path: &str,
+    remote: &str,
+    local_branch: &str,
+    remote_branch: &str,
+) -> Result<String, String> {
+    let refspec = format!("{}:refs/heads/{}", local_branch, remote_branch);
+    run_git(repo_path, &["push", "--force", remote, &refspec])
+}
+
+/// Check whether a push failure is due to diverged history (non-fast-forward).
+pub fn is_diverged_push_error(error_message: &str) -> bool {
+    let lower = error_message.to_lowercase();
+    lower.contains("non-fast-forward")
+        || lower.contains("fetch first")
+        || lower.contains("failed to push")
+        || lower.contains("rejected")
 }
 
 // --- Commit operations ---

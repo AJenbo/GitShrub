@@ -40,10 +40,12 @@ Run from inside a git repo, or it exits with an error.
 
 ## GUI Layout
 
-The window is split into three vertical sections:
+The window is split into three vertical sections, with a menu bar at the top:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
+│ Menu Bar  [ Push ]                                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
 │ Commit List (top pane, scrollable)                                          │
 │                                                                             │
 │  * [origin/master]─[master] Refactoring   │ Jane Doe │ 2006-05-03 12:32:11 │
@@ -65,6 +67,14 @@ The window is split into three vertical sections:
 │                                      │                                      │
 └──────────────────────────────────────┴──────────────────────────────────────┘
 ```
+
+### Menu Bar
+
+- Sits at the top of the window, above the commit list (and above any error/status bar)
+- Contains a **Push** button that opens a push dialog (modal window)
+- The push dialog lets you pick a remote, type or autocomplete a remote branch name, preview the refspec (e.g. `master -> origin/master`), and push
+- If the local branch has no tracking branch and the remote branch name matches the local branch name, `--set-upstream` is used automatically
+- If the push fails due to diverged history, a force-push confirmation appears in the dialog
 
 ### Commit List
 
@@ -102,6 +112,7 @@ Right-clicking a **branch/tag label** or a **commit row** opens a context menu:
 | Reset --hard    | Commit              | `git reset --hard <sha>`                |
 | Revert          | Commit              | `git revert <sha>`                      |
 | Cherry-pick     | Commit              | `git cherry-pick <sha>`                 |
+| Push            | Menu bar             | `git push [--set-upstream] [--force] <remote> <refspec>` |
 
 After any mutating action, the commit list is refreshed.
 
