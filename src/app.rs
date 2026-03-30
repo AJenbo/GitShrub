@@ -121,6 +121,15 @@ pub struct App {
 
     /// Whether to show the force-push confirmation prompt.
     pub push_force_confirm: bool,
+
+    /// Whether the add-remote dialog is open.
+    pub add_remote_dialog_open: bool,
+
+    /// URL text field in the add-remote dialog.
+    pub add_remote_url: String,
+
+    /// Name text field in the add-remote dialog (auto-derived from URL, but editable).
+    pub add_remote_name: String,
 }
 
 impl App {
@@ -174,6 +183,9 @@ impl App {
             push_remote_branches: Vec::new(),
             push_branch_name: String::new(),
             push_force_confirm: false,
+            add_remote_dialog_open: false,
+            add_remote_url: String::new(),
+            add_remote_name: String::new(),
         };
 
         app.refresh_commits();
@@ -220,6 +232,9 @@ impl App {
             push_remote_branches: Vec::new(),
             push_branch_name: String::new(),
             push_force_confirm: false,
+            add_remote_dialog_open: false,
+            add_remote_url: String::new(),
+            add_remote_name: String::new(),
         }
     }
 
@@ -505,6 +520,75 @@ impl App {
         }
     }
 
+    /// Render the add-remote dialog as a modal window.
+    fn show_add_remote_dialog(&mut self, ctx: &egui::Context) {
+        if !self.add_remote_dialog_open {
+            return;
+        }
+
+        let mut do_close = false;
+        let mut do_add = false;
+
+        egui::Window::new("Add remote")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.set_min_width(400.0);
+
+                ui.horizontal(|ui| {
+                    ui.label("URL:");
+                    let response = ui.text_edit_singleline(&mut self.add_remote_url);
+                    if response.changed() {
+                        // Auto-derive remote name from URL whenever the user edits it.
+                        self.add_remote_name =
+                            git::remote_name_from_url(&self.add_remote_url).unwrap_or_default();
+                    }
+                });
+
+                ui.add_space(4.0);
+
+                ui.horizontal(|ui| {
+                    ui.label("Name:");
+                    ui.text_edit_singleline(&mut self.add_remote_name);
+                });
+
+                ui.add_space(8.0);
+
+                ui.horizontal(|ui| {
+                    let name_empty = self.add_remote_name.trim().is_empty();
+                    let url_empty = self.add_remote_url.trim().is_empty();
+                    ui.add_enabled_ui(!name_empty && !url_empty, |ui| {
+                        if ui.button("Add").clicked() {
+                            do_add = true;
+                        }
+                    });
+                    if ui.button("Cancel").clicked() {
+                        do_close = true;
+                    }
+                });
+            });
+
+        if do_add {
+            let name = self.add_remote_name.trim().to_string();
+            let url = self.add_remote_url.trim().to_string();
+            self.add_remote_dialog_open = false;
+            match git::add_remote(&self.repo_path, &name, &url) {
+                Ok(_) => {
+                    self.status_message = None;
+                }
+                Err(e) => {
+                    self.status_message = Some(e);
+                }
+            }
+            self.refresh_commits();
+        }
+
+        if do_close {
+            self.add_remote_dialog_open = false;
+        }
+    }
+
     /// Render the push dialog as a modal window.
     fn show_push_dialog(&mut self, ctx: &egui::Context) {
         if !self.push_dialog_open {
@@ -700,6 +784,9 @@ impl eframe::App for App {
         // Push dialog (rendered before layout so it floats on top).
         self.show_push_dialog(&ctx);
 
+        // Add remote dialog.
+        self.show_add_remote_dialog(&ctx);
+
         // If the app was created with a startup error, show only that.
         if let Some(ref error) = self.startup_error {
             egui::CentralPanel::default().show_inside(ui, |ui| {
@@ -733,6 +820,11 @@ impl eframe::App for App {
             egui::MenuBar::new().ui(ui, |ui| {
                 if ui.button("Push").clicked() {
                     self.open_push_dialog();
+                }
+                if ui.button("Add remote").clicked() {
+                    self.add_remote_url.clear();
+                    self.add_remote_name.clear();
+                    self.add_remote_dialog_open = true;
                 }
                 if ui.selectable_label(self.show_all, "All branches").clicked() {
                     toggle_all = true;

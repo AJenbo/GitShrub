@@ -491,6 +491,46 @@ pub fn remove_remote(repo_path: &str, remote: &str) -> Result<String, String> {
     run_git(repo_path, &["remote", "remove", remote])
 }
 
+/// Add a remote and fetch from it.
+pub fn add_remote(repo_path: &str, name: &str, url: &str) -> Result<String, String> {
+    run_git(repo_path, &["remote", "add", name, url])?;
+    fetch_remote(repo_path, name)
+}
+
+/// Fetch from a remote.
+pub fn fetch_remote(repo_path: &str, remote: &str) -> Result<String, String> {
+    run_git(repo_path, &["fetch", remote])
+}
+
+/// Extract a remote name from a URL.
+///
+/// For SSH URLs like `git@github.com:user/repo.git`, extracts `user`.
+/// For HTTPS URLs like `https://github.com/user/repo.git`, extracts `user`.
+/// Returns `None` if the URL doesn't match any known pattern.
+pub fn remote_name_from_url(url: &str) -> Option<String> {
+    // SSH: git@github.com:user/repo.git
+    if let Some(path) = url.split(':').nth(1)
+        && url.contains('@')
+    {
+        let user = path.split('/').next()?;
+        if !user.is_empty() {
+            return Some(user.to_string());
+        }
+    }
+    // HTTPS: https://github.com/user/repo.git
+    if url.starts_with("http://") || url.starts_with("https://") {
+        let parts: Vec<&str> = url.trim_end_matches('/').split('/').collect();
+        // URL like https://github.com/user/repo — user is second-to-last
+        if parts.len() >= 4 {
+            let user = parts[parts.len() - 2];
+            if !user.is_empty() {
+                return Some(user.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// List all configured remotes.
 pub fn list_remotes(repo_path: &str) -> Result<Vec<String>, String> {
     let output = run_git(repo_path, &["remote"])?;
