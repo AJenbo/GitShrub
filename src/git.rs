@@ -518,6 +518,47 @@ pub fn gc_cleanup(repo_path: &str) -> Result<String, String> {
     Ok("Cleanup complete".to_string())
 }
 
+/// Update all submodules recursively.
+pub fn update_submodules(repo_path: &str) -> Result<String, String> {
+    run_git(repo_path, &["submodule", "update", "--init", "--recursive"])
+}
+
+/// Load stash entries and return their SHAs and labels.
+///
+/// Returns a list of SHAs and a map from SHA to display label (e.g. "stash@{0} WIP on main").
+pub fn load_stash_entries(
+    repo_path: &str,
+) -> Result<(Vec<String>, std::collections::HashMap<String, String>), String> {
+    use std::collections::HashMap;
+
+    let output = match run_git(repo_path, &["stash", "list", "--format=%H%x00%gd: %gs%x01"]) {
+        Ok(o) => o,
+        Err(_) => return Ok((Vec::new(), HashMap::new())),
+    };
+
+    let mut shas = Vec::new();
+    let mut labels: HashMap<String, String> = HashMap::new();
+
+    for record in output.split('\x01') {
+        let record = record.trim();
+        if record.is_empty() {
+            continue;
+        }
+        let fields: Vec<&str> = record.splitn(2, '\0').collect();
+        if fields.len() < 2 {
+            continue;
+        }
+        let sha = fields[0].trim().to_string();
+        let label = fields[1].trim().to_string();
+        if !sha.is_empty() {
+            shas.push(sha.clone());
+            labels.insert(sha, label);
+        }
+    }
+
+    Ok((shas, labels))
+}
+
 /// Extract a remote name from a URL.
 ///
 /// For SSH URLs like `git@github.com:user/repo.git`, extracts `user`.

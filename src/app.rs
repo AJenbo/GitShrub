@@ -26,6 +26,9 @@ pub struct App {
     /// Whether the About dialog is open.
     pub about_dialog_open: bool,
 
+    /// Whether to show stash entries in the commit tree.
+    pub show_stash: bool,
+
     /// Whether to show reflog entries (--reflog flag).
     pub show_reflog: bool,
 
@@ -155,6 +158,7 @@ impl App {
             repo_path,
             show_all,
             about_dialog_open: false,
+            show_stash: false,
             show_reflog,
             revision,
             path_filter,
@@ -205,6 +209,7 @@ impl App {
             repo_path: String::new(),
             show_all: false,
             about_dialog_open: false,
+            show_stash: false,
             show_reflog: false,
             revision: None,
             path_filter: None,
@@ -248,7 +253,7 @@ impl App {
         // If --reflog is enabled, discover orphaned reflog SHAs first so we
         // can pass them as extra starting points to `git log`. This lets git
         // handle topo-sorting and deduplication in a single pass.
-        let (extra_shas, reflog_labels) = if self.show_reflog {
+        let (mut extra_shas, reflog_labels) = if self.show_reflog {
             match git::load_reflog_orphans(&self.repo_path) {
                 Ok(result) => result,
                 Err(e) => {
@@ -258,6 +263,22 @@ impl App {
             }
         } else {
             (Vec::new(), std::collections::HashMap::new())
+        };
+
+        // If stash display is enabled, load stash entries as extra SHAs.
+        let stash_labels = if self.show_stash {
+            match git::load_stash_entries(&self.repo_path) {
+                Ok((stash_shas, labels)) => {
+                    extra_shas.extend(stash_shas);
+                    labels
+                }
+                Err(e) => {
+                    self.status_message = Some(format!("Failed to load stash: {}", e));
+                    std::collections::HashMap::new()
+                }
+            }
+        } else {
+            std::collections::HashMap::new()
         };
 
         match git::load_commits(
@@ -272,6 +293,14 @@ impl App {
                 if !reflog_labels.is_empty() {
                     for commit in &mut commits {
                         if let Some(label) = reflog_labels.get(&commit.full_sha) {
+                            commit.refs.push(label.clone());
+                        }
+                    }
+                }
+                // Annotate commits with stash labels where applicable.
+                if !stash_labels.is_empty() {
+                    for commit in &mut commits {
+                        if let Some(label) = stash_labels.get(&commit.full_sha) {
                             commit.refs.push(label.clone());
                         }
                     }
@@ -799,6 +828,13 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
 
+        // F5 or Ctrl+R to refresh.
+        if ctx.input(|i| {
+            i.key_pressed(egui::Key::F5) || (i.key_pressed(egui::Key::R) && i.modifiers.command)
+        }) {
+            self.refresh_commits();
+        }
+
         // Update window title
         if self.startup_error.is_some() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title("GitShrub".to_string()));
@@ -846,6 +882,7 @@ impl eframe::App for App {
         // Menu bar
         let mut toggle_all = false;
         let mut toggle_reflog = false;
+        let mut toggle_stash = false;
         let mut show_about = false;
         egui::Panel::top("menu_bar").show_inside(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
@@ -870,6 +907,10 @@ impl eframe::App for App {
                         self.add_remote_dialog_open = true;
                         ui.close();
                     }
+                    if ui.button("Update submodules").clicked() {
+                        self.run_git_action(git::update_submodules);
+                        ui.close();
+                    }
                     ui.separator();
                     if ui.button("Cleanup").clicked() {
                         self.run_git_action(git::gc_cleanup);
@@ -879,6 +920,7 @@ impl eframe::App for App {
                 let repo_popup_id = egui::Popup::default_response_id(&repo_resp.response);
                 if any_open
                     && repo_resp.response.hovered()
+                    && !repo_resp.response.clicked()
                     && !egui::Popup::is_id_open(&ctx, repo_popup_id)
                 {
                     egui::Popup::open_id(&ctx, repo_popup_id);
@@ -893,10 +935,20 @@ impl eframe::App for App {
                         toggle_reflog = true;
                         ui.close();
                     }
+                    if ui.selectable_label(self.show_stash, "Stash").clicked() {
+                        toggle_stash = true;
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Refresh").clicked() {
+                        self.refresh_commits();
+                        ui.close();
+                    }
                 });
                 let view_popup_id = egui::Popup::default_response_id(&view_resp.response);
                 if any_open
                     && view_resp.response.hovered()
+                    && !view_resp.response.clicked()
                     && !egui::Popup::is_id_open(&ctx, view_popup_id)
                 {
                     egui::Popup::open_id(&ctx, view_popup_id);
@@ -911,6 +963,7 @@ impl eframe::App for App {
                 let help_popup_id = egui::Popup::default_response_id(&help_resp.response);
                 if any_open
                     && help_resp.response.hovered()
+                    && !help_resp.response.clicked()
                     && !egui::Popup::is_id_open(&ctx, help_popup_id)
                 {
                     egui::Popup::open_id(&ctx, help_popup_id);
@@ -923,6 +976,10 @@ impl eframe::App for App {
         }
         if toggle_reflog {
             self.show_reflog = !self.show_reflog;
+            self.refresh_commits();
+        }
+        if toggle_stash {
+            self.show_stash = !self.show_stash;
             self.refresh_commits();
         }
         if show_about {

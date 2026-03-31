@@ -146,6 +146,6 @@
 
 ## Milestone 15: Misc Operations
 
-- [ ] Refresh button / shortcut
-- [ ] Update submodules
-- [ ] Show stash in commit tree (and View menu toggle)
+- [x] Refresh button / shortcut (F5 + Repository menu)
+- [x] Update submodules (`git submodule update --init --recursive`)
+- [x] Show stash in commit tree (and View menu toggle)
