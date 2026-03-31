@@ -502,6 +502,11 @@ pub fn fetch_remote(repo_path: &str, remote: &str) -> Result<String, String> {
     run_git(repo_path, &["fetch", remote])
 }
 
+/// Fetch from all remotes and prune deleted remote branches.
+pub fn fetch_all(repo_path: &str) -> Result<String, String> {
+    run_git(repo_path, &["fetch", "--all", "-p"])
+}
+
 /// Extract a remote name from a URL.
 ///
 /// For SSH URLs like `git@github.com:user/repo.git`, extracts `user`.

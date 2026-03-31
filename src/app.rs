@@ -846,6 +846,9 @@ impl eframe::App for App {
                 if ui.button("Push").clicked() {
                     self.open_push_dialog();
                 }
+                if ui.button("Fetch").clicked() {
+                    self.run_git_action(git::fetch_all);
+                }
                 if ui.button("Add remote").clicked() {
                     self.add_remote_url.clear();
                     self.add_remote_name.clear();
