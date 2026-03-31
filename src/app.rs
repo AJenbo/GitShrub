@@ -23,6 +23,9 @@ pub struct App {
     /// Whether to show all branches (--all flag).
     pub show_all: bool,
 
+    /// Whether the About dialog is open.
+    pub about_dialog_open: bool,
+
     /// Whether to show reflog entries (--reflog flag).
     pub show_reflog: bool,
 
@@ -151,6 +154,7 @@ impl App {
         let mut app = App {
             repo_path,
             show_all,
+            about_dialog_open: false,
             show_reflog,
             revision,
             path_filter,
@@ -200,6 +204,7 @@ impl App {
         App {
             repo_path: String::new(),
             show_all: false,
+            about_dialog_open: false,
             show_reflog: false,
             revision: None,
             path_filter: None,
@@ -841,27 +846,74 @@ impl eframe::App for App {
         // Menu bar
         let mut toggle_all = false;
         let mut toggle_reflog = false;
+        let mut show_about = false;
         egui::Panel::top("menu_bar").show_inside(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
-                if ui.button("Push").clicked() {
-                    self.open_push_dialog();
+                // Helper: after showing a menu_button, if the button is hovered
+                // and some *other* popup is already open, switch to this one.
+                // This gives standard menu bar hover-to-switch behavior.
+                let any_open = egui::Popup::is_any_open(&ctx);
+
+                let repo_resp = ui.menu_button("Repository", |ui| {
+                    if ui.button("Fetch").clicked() {
+                        self.run_git_action(git::fetch_all);
+                        ui.close();
+                    }
+                    if ui.button("Push...").clicked() {
+                        self.open_push_dialog();
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Add remote...").clicked() {
+                        self.add_remote_url.clear();
+                        self.add_remote_name.clear();
+                        self.add_remote_dialog_open = true;
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.button("Cleanup").clicked() {
+                        self.run_git_action(git::gc_cleanup);
+                        ui.close();
+                    }
+                });
+                let repo_popup_id = egui::Popup::default_response_id(&repo_resp.response);
+                if any_open
+                    && repo_resp.response.hovered()
+                    && !egui::Popup::is_id_open(&ctx, repo_popup_id)
+                {
+                    egui::Popup::open_id(&ctx, repo_popup_id);
                 }
-                if ui.button("Fetch").clicked() {
-                    self.run_git_action(git::fetch_all);
+
+                let view_resp = ui.menu_button("View", |ui| {
+                    if ui.selectable_label(self.show_all, "All branches").clicked() {
+                        toggle_all = true;
+                        ui.close();
+                    }
+                    if ui.selectable_label(self.show_reflog, "Reflog").clicked() {
+                        toggle_reflog = true;
+                        ui.close();
+                    }
+                });
+                let view_popup_id = egui::Popup::default_response_id(&view_resp.response);
+                if any_open
+                    && view_resp.response.hovered()
+                    && !egui::Popup::is_id_open(&ctx, view_popup_id)
+                {
+                    egui::Popup::open_id(&ctx, view_popup_id);
                 }
-                if ui.button("Cleanup").clicked() {
-                    self.run_git_action(git::gc_cleanup);
-                }
-                if ui.button("Add remote").clicked() {
-                    self.add_remote_url.clear();
-                    self.add_remote_name.clear();
-                    self.add_remote_dialog_open = true;
-                }
-                if ui.selectable_label(self.show_all, "All branches").clicked() {
-                    toggle_all = true;
-                }
-                if ui.selectable_label(self.show_reflog, "Reflog").clicked() {
-                    toggle_reflog = true;
+
+                let help_resp = ui.menu_button("Help", |ui| {
+                    if ui.button("About GitShrub").clicked() {
+                        show_about = true;
+                        ui.close();
+                    }
+                });
+                let help_popup_id = egui::Popup::default_response_id(&help_resp.response);
+                if any_open
+                    && help_resp.response.hovered()
+                    && !egui::Popup::is_id_open(&ctx, help_popup_id)
+                {
+                    egui::Popup::open_id(&ctx, help_popup_id);
                 }
             });
         });
@@ -872,6 +924,45 @@ impl eframe::App for App {
         if toggle_reflog {
             self.show_reflog = !self.show_reflog;
             self.refresh_commits();
+        }
+        if show_about {
+            self.about_dialog_open = true;
+        }
+
+        // About dialog
+        if self.about_dialog_open {
+            let mut open = self.about_dialog_open;
+            egui::Window::new("About GitShrub")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+                .open(&mut open)
+                .show(&ctx, |ui| {
+                    ui.vertical_centered(|ui| {
+                        ui.add_space(8.0);
+                        ui.heading(egui::RichText::new("GitShrub").strong().size(20.0));
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                                .color(egui::Color32::from_rgb(160, 160, 160)),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(env!("CARGO_PKG_DESCRIPTION"))
+                                .color(egui::Color32::from_rgb(180, 180, 180)),
+                        );
+                        ui.add_space(8.0);
+                        ui.hyperlink_to("GitHub", "https://github.com/AJenbo/GitShrub");
+                        ui.add_space(4.0);
+                        ui.label(
+                            egui::RichText::new("MIT License")
+                                .color(egui::Color32::from_rgb(140, 140, 140))
+                                .small(),
+                        );
+                        ui.add_space(8.0);
+                    });
+                });
+            self.about_dialog_open = open;
         }
 
         // Create branch name input dialog.

@@ -112,6 +112,11 @@
 - [x] Toggle --all and --reflog from the menu bar (no restart needed)
 - [x] Remote branch checkout sets upstream tracking
 - [x] Remove remote from remote branch context menu
+- [x] Add remote dialog (auto-derives name from URL, editable)
+- [x] Fetch all remotes (`git fetch --all -p`)
+- [x] Cleanup (gc/prune with 24h safety window)
+- [x] Structured menu bar (Repository / View / Help)
+- [x] About dialog (version, description, link)
 
 ---
 
@@ -143,4 +148,4 @@
 
 - [ ] Refresh button / shortcut
 - [ ] Update submodules
-- [ ] Show stash in commit tree
+- [ ] Show stash in commit tree (and View menu toggle)
