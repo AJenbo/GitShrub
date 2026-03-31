@@ -15,11 +15,13 @@ A git history viewer that doesn't look broken. It won't win any design awards, b
 ## What makes it different
 
 - **No confirmation dialogs.** Actions execute immediately. You're an adult.
-- **Reflog in the graph.** `--reflog` shows orphaned commits (pre-amend, pre-reset, pre-rebase) right in the tree. The safety net for the no-confirmation policy. Your old commits are still in the garbage pile, you just need to find them.
+- **Reflog in the graph.** Toggle reflog from the View menu to see orphaned commits (pre-amend, pre-reset, pre-rebase) right in the tree. The safety net for the no-confirmation policy. Your old commits are still in the garbage pile, you just need to find them.
+- **Stash in the graph.** Toggle stash from the View menu to see your stashed changes as commits in the tree. Maybe you'll finally start using stash now.
 - **Multi cherry-pick with reorder.** Select multiple commits, drag them into the order you want, pick or skip each one.
 - **Big abort button.** When you're in the middle of a rebase gone wrong and can't remember the right `--abort` flag, there's a banner at the top with a button. It also shows continue when applicable.
-- **Right-click origin/master.** You don't need a local tracking branch to checkout. If you can see it in the graph, you can act on it.
+- **Right-click origin/master.** You don't need a local tracking branch to checkout. If you can see it in the graph, you can act on it. Checkout automatically sets up tracking.
 - **Interactive rebase from the graph.** Right-click any commit, reorder with drag-and-drop, set actions per commit (pick, reword, edit, squash, fixup, drop).
+- **Push with force-push recovery.** Push dialog lets you pick remote and branch. If it's rejected due to diverged history, it asks before force pushing instead of just failing.
 
 ## Features
 
@@ -29,6 +31,9 @@ A git history viewer that doesn't look broken. It won't win any design awards, b
 - Multi-select with Shift+Click and Ctrl+Click
 - Keyboard navigation (Up/Down/Home/End/PgUp/PgDn)
 - Detects in-progress rebase, cherry-pick, merge, bisect, and revert
+- Fetch, push, add remote, update submodules, and cleanup from the menu bar
+- Toggle all branches, reflog, and stash visibility without restarting
+- Refresh with F5 / Ctrl+R
 
 ## Usage
 
