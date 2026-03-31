@@ -507,6 +507,17 @@ pub fn fetch_all(repo_path: &str) -> Result<String, String> {
     run_git(repo_path, &["fetch", "--all", "-p"])
 }
 
+/// Run garbage collection cleanup: expire reflog entries older than 24 hours,
+/// prune unreachable objects, and run gc.
+pub fn gc_cleanup(repo_path: &str) -> Result<String, String> {
+    run_git(
+        repo_path,
+        &["reflog", "expire", "--expire=24.hours", "--all"],
+    )?;
+    run_git(repo_path, &["gc", "--prune=24.hours"])?;
+    Ok("Cleanup complete".to_string())
+}
+
 /// Extract a remote name from a URL.
 ///
 /// For SSH URLs like `git@github.com:user/repo.git`, extracts `user`.
