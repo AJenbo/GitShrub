@@ -476,10 +476,11 @@ impl App {
     }
 
     /// Execute the push and handle the result.
-    fn execute_push(&mut self, force: bool) {
+    /// Returns `true` if the dialog should be closed afterwards.
+    fn execute_push(&mut self, force: bool) -> bool {
         let remote = match self.push_remotes.get(self.push_selected_remote) {
             Some(r) => r.clone(),
-            None => return,
+            None => return false,
         };
         let local_branch = self.current_branch.clone();
         let remote_branch = self.push_branch_name.clone();
@@ -507,14 +508,17 @@ impl App {
                 self.push_dialog_open = false;
                 self.push_force_confirm = false;
                 self.refresh_commits();
+                true
             }
             Err(e) => {
                 if !force && git::is_diverged_push_error(&e) {
                     self.push_force_confirm = true;
+                    false
                 } else {
                     self.status_message = Some(e);
                     self.push_dialog_open = false;
                     self.push_force_confirm = false;
+                    true
                 }
             }
         }
@@ -528,6 +532,7 @@ impl App {
 
         let mut do_close = false;
         let mut do_add = false;
+        let focus_id = egui::Id::new("add_remote_focus_done");
 
         egui::Window::new("Add remote")
             .collapsible(false)
@@ -539,6 +544,12 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label("URL:");
                     let response = ui.text_edit_singleline(&mut self.add_remote_url);
+                    let already_focused: bool =
+                        ui.ctx().data(|d| d.get_temp(focus_id).unwrap_or(false));
+                    if !already_focused {
+                        response.request_focus();
+                        ui.ctx().data_mut(|d| d.insert_temp(focus_id, true));
+                    }
                     if response.changed() {
                         // Auto-derive remote name from URL whenever the user edits it.
                         self.add_remote_name =
@@ -573,6 +584,7 @@ impl App {
             let name = self.add_remote_name.trim().to_string();
             let url = self.add_remote_url.trim().to_string();
             self.add_remote_dialog_open = false;
+            ctx.data_mut(|d| d.remove::<bool>(focus_id));
             match git::add_remote(&self.repo_path, &name, &url) {
                 Ok(_) => {
                     self.status_message = None;
@@ -586,6 +598,7 @@ impl App {
 
         if do_close {
             self.add_remote_dialog_open = false;
+            ctx.data_mut(|d| d.remove::<bool>(focus_id));
         }
     }
 
@@ -599,6 +612,7 @@ impl App {
         let mut do_push = false;
         let mut do_force = false;
         let mut remote_changed = false;
+        let focus_id = egui::Id::new("push_branch_focus_done");
 
         egui::Window::new("Push")
             .collapsible(false)
@@ -706,7 +720,13 @@ impl App {
 
                 // Branch name text field (editable, for typing a new name).
                 ui.horizontal(|ui| {
-                    ui.text_edit_singleline(&mut self.push_branch_name);
+                    let response = ui.text_edit_singleline(&mut self.push_branch_name);
+                    let already_focused: bool =
+                        ui.ctx().data(|d| d.get_temp(focus_id).unwrap_or(false));
+                    if !already_focused {
+                        response.request_focus();
+                        ui.ctx().data_mut(|d| d.insert_temp(focus_id, true));
+                    }
                 });
 
                 ui.add_space(8.0);
@@ -749,15 +769,20 @@ impl App {
             self.refresh_push_remote_branches();
         }
 
+        let mut should_clear_focus = do_close;
         if do_push {
-            self.execute_push(false);
+            should_clear_focus = self.execute_push(false);
         } else if do_force {
-            self.execute_push(true);
+            should_clear_focus = self.execute_push(true);
         }
 
         if do_close {
             self.push_dialog_open = false;
             self.push_force_confirm = false;
+        }
+
+        if should_clear_focus {
+            ctx.data_mut(|d| d.remove::<bool>(focus_id));
         }
     }
 }
