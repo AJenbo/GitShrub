@@ -7,6 +7,7 @@ use std::io::Cursor;
 mod app;
 mod git;
 mod graph;
+mod projects;
 mod ui;
 
 fn main() -> eframe::Result<()> {

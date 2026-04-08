@@ -131,9 +131,12 @@
 
 ## Milestone 13: Project Management
 
-- [ ] Project list (remember project folders)
-- [ ] Add project / open project
-- [ ] Remove a project from the list
+- [x] Project list (remember project folders)
+- [x] Add project / open project
+- [x] Remove a project from the list
+- [x] Prune deleted repositories from the list on startup
+- [x] Browse button with native file dialog
+- [x] Project chooser shown when launched outside a git repo
 
 ## Milestone 14: Commit Mode
 

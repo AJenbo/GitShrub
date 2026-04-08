@@ -1,9 +1,10 @@
 use std::collections::BTreeSet;
 
-use egui::{Pos2, Stroke, Vec2};
+use egui::{Pos2, Rect, Stroke, Vec2};
 
 use crate::git::{self, Commit, DiffOutput, InProgressOp, RebaseAction, RebaseEntry};
 use crate::graph::{self, GraphRow};
+use crate::projects;
 use crate::ui;
 
 /// Which mode the commit-list dialog is in.
@@ -140,6 +141,9 @@ pub struct App {
     /// Cached list of remote names (e.g. ["origin", "upstream"]).
     /// Used to distinguish local branches with slashes from remote tracking refs.
     pub remotes: Vec<String>,
+
+    /// Cached project list for the project chooser screen.
+    pub project_list: projects::ProjectList,
 }
 
 impl App {
@@ -157,6 +161,9 @@ impl App {
             .file_name()
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "unknown".into());
+
+        // Record this repo in the recent projects list.
+        projects::add_project(&repo_path);
 
         let mut app = App {
             repo_path,
@@ -199,6 +206,7 @@ impl App {
             add_remote_url: String::new(),
             add_remote_name: String::new(),
             remotes: Vec::new(),
+            project_list: projects::load(),
         };
 
         app.refresh_commits();
@@ -251,6 +259,11 @@ impl App {
             add_remote_url: String::new(),
             add_remote_name: String::new(),
             remotes: Vec::new(),
+            project_list: {
+                let mut list = projects::load();
+                projects::prune_missing(&mut list);
+                list
+            },
         }
     }
 
@@ -398,6 +411,254 @@ impl App {
     /// Get the selected commit, if any.
     pub fn selected_commit(&self) -> Option<&Commit> {
         self.selected_index.and_then(|i| self.commits.get(i))
+    }
+
+    /// Open a repository from the project chooser.
+    /// Reinitialises the app state as if it had been launched with this repo.
+    pub fn open_repo(&mut self, repo_path: String) {
+        // Validate first.
+        match git::verify_repo(&repo_path) {
+            Ok(verified_path) => {
+                projects::add_project(&verified_path);
+                self.repo_path = verified_path;
+            }
+            Err(e) => {
+                self.status_message = Some(e);
+                return;
+            }
+        }
+
+        self.startup_error = None;
+        self.repo_name = std::path::Path::new(&self.repo_path)
+            .file_name()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "unknown".into());
+        self.current_branch =
+            git::current_branch(&self.repo_path).unwrap_or_else(|_| "detached".into());
+        self.show_all = false;
+        self.show_reflog = false;
+        self.show_stash = false;
+        self.revision = None;
+        self.path_filter = None;
+        self.status_message = None;
+        self.refresh_commits();
+        self.in_progress_op = git::detect_in_progress_op(&self.repo_path);
+    }
+
+    /// Render the project chooser screen (shown when no repo is open).
+    fn show_project_chooser(&mut self, ui: &mut egui::Ui) {
+        let mut repo_to_open: Option<String> = None;
+
+        // Card tile dimensions.
+        const CARD_WIDTH: f32 = 180.0;
+        const CARD_HEIGHT: f32 = 100.0;
+        const CARD_SPACING: f32 = 12.0;
+        const CARD_ROUNDING: f32 = 8.0;
+
+        egui::CentralPanel::default().show_inside(ui, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(40.0);
+                ui.heading(
+                    egui::RichText::new("GitShrub")
+                        .color(egui::Color32::from_rgb(120, 180, 255))
+                        .size(28.0),
+                );
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new("Open a repository to get started.")
+                        .color(egui::Color32::from_rgb(160, 160, 160))
+                        .size(14.0),
+                );
+                ui.add_space(24.0);
+
+                if ui
+                    .button(egui::RichText::new("  Browse for repository...  ").size(15.0))
+                    .clicked()
+                    && let Some(path) = rfd::FileDialog::new().pick_folder()
+                {
+                    repo_to_open = Some(path.to_string_lossy().to_string());
+                }
+
+                ui.add_space(24.0);
+
+                if !self.project_list.recent.is_empty() {
+                    ui.separator();
+                    ui.add_space(12.0);
+                    ui.label(
+                        egui::RichText::new("Recent repositories")
+                            .strong()
+                            .color(egui::Color32::from_rgb(200, 200, 200))
+                            .size(16.0),
+                    );
+                    ui.add_space(12.0);
+
+                    // Compute how many cards fit per row.
+                    let available_width = ui.available_width();
+                    let cols = ((available_width + CARD_SPACING) / (CARD_WIDTH + CARD_SPACING))
+                        .floor()
+                        .max(1.0) as usize;
+
+                    let mut remove_idx: Option<usize> = None;
+
+                    egui::ScrollArea::vertical()
+                        .max_height(ui.available_height() - 40.0)
+                        .show(ui, |ui| {
+                            // Center the grid by adding left padding.
+                            let grid_width =
+                                cols as f32 * CARD_WIDTH + (cols - 1).max(0) as f32 * CARD_SPACING;
+                            let left_pad = ((available_width - grid_width) * 0.5).max(0.0);
+
+                            let projects = &self.project_list.recent;
+                            let rows = projects.len().div_ceil(cols);
+
+                            for row in 0..rows {
+                                ui.horizontal(|ui| {
+                                    ui.add_space(left_pad);
+                                    for col in 0..cols {
+                                        let idx = row * cols + col;
+                                        if idx >= projects.len() {
+                                            break;
+                                        }
+                                        let project = &projects[idx];
+
+                                        // Draw a card-shaped button.
+                                        let (rect, response) = ui.allocate_exact_size(
+                                            Vec2::new(CARD_WIDTH, CARD_HEIGHT),
+                                            egui::Sense::click(),
+                                        );
+
+                                        if col + 1 < cols {
+                                            ui.add_space(CARD_SPACING);
+                                        }
+
+                                        // Background color: subtle hover effect.
+                                        let bg = if response.hovered() {
+                                            egui::Color32::from_rgb(55, 60, 70)
+                                        } else {
+                                            egui::Color32::from_rgb(40, 44, 52)
+                                        };
+                                        let painter = ui.painter();
+                                        let border_color = if response.hovered() {
+                                            egui::Color32::from_rgb(80, 100, 140)
+                                        } else {
+                                            egui::Color32::from_rgb(60, 64, 72)
+                                        };
+                                        painter.rect(
+                                            rect,
+                                            CARD_ROUNDING,
+                                            bg,
+                                            Stroke::new(1.0, border_color),
+                                            egui::StrokeKind::Outside,
+                                        );
+
+                                        // Remove "x" in the top-right corner.
+                                        // Remove "x" button in the top-right corner.
+                                        // Always allocate the interact region so it
+                                        // blocks clicks from reaching the card beneath.
+                                        let x_size = 20.0;
+                                        let x_rect = Rect::from_min_size(
+                                            Pos2::new(
+                                                rect.right() - x_size - 2.0,
+                                                rect.top() + 2.0,
+                                            ),
+                                            Vec2::new(x_size, x_size),
+                                        );
+                                        let x_response = ui.interact(
+                                            x_rect,
+                                            egui::Id::new(("remove_project", idx)),
+                                            egui::Sense::click(),
+                                        );
+                                        // Only draw the "x" when the card is hovered.
+                                        if response.hovered() || x_response.hovered() {
+                                            let x_color = if x_response.hovered() {
+                                                egui::Color32::from_rgb(255, 100, 100)
+                                            } else {
+                                                egui::Color32::from_rgb(160, 100, 100)
+                                            };
+                                            painter.text(
+                                                x_rect.center(),
+                                                egui::Align2::CENTER_CENTER,
+                                                "x",
+                                                egui::FontId::proportional(14.0),
+                                                x_color,
+                                            );
+                                        }
+                                        if x_response.clicked() {
+                                            remove_idx = Some(idx);
+                                        }
+
+                                        // Repo name (large, centered).
+                                        let name_pos = Pos2::new(
+                                            rect.center().x,
+                                            rect.top() + CARD_HEIGHT * 0.35,
+                                        );
+                                        painter.text(
+                                            name_pos,
+                                            egui::Align2::CENTER_CENTER,
+                                            &project.name,
+                                            egui::FontId::monospace(14.0),
+                                            egui::Color32::from_rgb(140, 195, 255),
+                                        );
+
+                                        // Path (small, dimmer, below the name).
+                                        // Abbreviate long paths to fit the card.
+                                        let display_path = Self::abbreviate_path(&project.path, 28);
+                                        let path_pos = Pos2::new(
+                                            rect.center().x,
+                                            rect.top() + CARD_HEIGHT * 0.65,
+                                        );
+                                        painter.text(
+                                            path_pos,
+                                            egui::Align2::CENTER_CENTER,
+                                            &display_path,
+                                            egui::FontId::proportional(10.0),
+                                            egui::Color32::from_rgb(120, 120, 130),
+                                        );
+
+                                        if response.clicked()
+                                            && remove_idx.is_none()
+                                            && !x_response.clicked()
+                                        {
+                                            repo_to_open = Some(project.path.clone());
+                                        }
+                                    }
+                                });
+                                ui.add_space(CARD_SPACING);
+                            }
+                        });
+
+                    if let Some(idx) = remove_idx {
+                        self.project_list.recent.remove(idx);
+                        projects::save(&self.project_list);
+                    }
+                }
+
+                // Show status message (e.g. error from a failed open).
+                if let Some(ref msg) = self.status_message {
+                    ui.add_space(12.0);
+                    ui.label(
+                        egui::RichText::new(msg)
+                            .color(egui::Color32::from_rgb(255, 140, 100))
+                            .size(13.0),
+                    );
+                }
+            });
+        });
+
+        if let Some(path) = repo_to_open {
+            self.open_repo(path);
+        }
+    }
+
+    /// Abbreviate a path to fit within `max_chars`, replacing the middle with "...".
+    fn abbreviate_path(path: &str, max_chars: usize) -> String {
+        if path.len() <= max_chars {
+            return path.to_string();
+        }
+        let keep = max_chars.saturating_sub(3) / 2;
+        let start = &path[..keep];
+        let end = &path[path.len() - keep..];
+        format!("{}...{}", start, end)
     }
 
     /// Build the window title string.
@@ -987,29 +1248,9 @@ impl eframe::App for App {
         // Add remote dialog.
         self.show_add_remote_dialog(&ctx);
 
-        // If the app was created with a startup error, show only that.
-        if let Some(ref error) = self.startup_error {
-            egui::CentralPanel::default().show_inside(ui, |ui| {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(ui.available_height() * 0.3);
-                    ui.heading(
-                        egui::RichText::new("Not a Git repository")
-                            .color(egui::Color32::from_rgb(255, 140, 100))
-                            .size(20.0),
-                    );
-                    ui.add_space(12.0);
-                    ui.label(
-                        egui::RichText::new(error)
-                            .color(egui::Color32::from_rgb(180, 180, 180))
-                            .size(14.0),
-                    );
-                    ui.add_space(24.0);
-                    ui.label(
-                        egui::RichText::new("Run GitShrub from inside a git repository.")
-                            .color(egui::Color32::from_rgb(140, 140, 140)),
-                    );
-                });
-            });
+        // If the app was created with a startup error, show the project chooser.
+        if self.startup_error.is_some() {
+            self.show_project_chooser(ui);
             return;
         }
 
@@ -1018,12 +1259,52 @@ impl eframe::App for App {
         let mut toggle_reflog = false;
         let mut toggle_stash = false;
         let mut show_about = false;
+        let mut project_to_open: Option<String> = None;
+        let mut close_project = false;
         egui::Panel::top("menu_bar").show_inside(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 // Helper: after showing a menu_button, if the button is hovered
                 // and some *other* popup is already open, switch to this one.
                 // This gives standard menu bar hover-to-switch behavior.
                 let any_open = egui::Popup::is_any_open(&ctx);
+
+                let proj_resp = ui.menu_button("Projects", |ui| {
+                    if ui.button("Browse...").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                            project_to_open = Some(path.to_string_lossy().to_string());
+                        }
+                        ui.close();
+                    }
+                    if ui.button("Close").clicked() {
+                        close_project = true;
+                        ui.close();
+                    }
+                    if !self.project_list.recent.is_empty() {
+                        ui.separator();
+                        for project in &self.project_list.recent {
+                            let is_current =
+                                !self.repo_path.is_empty() && project.path == self.repo_path;
+                            let label = if is_current {
+                                egui::RichText::new(&project.name)
+                                    .color(egui::Color32::from_rgb(120, 180, 255))
+                            } else {
+                                egui::RichText::new(&project.name)
+                            };
+                            if ui.button(label).on_hover_text(&project.path).clicked() {
+                                project_to_open = Some(project.path.clone());
+                                ui.close();
+                            }
+                        }
+                    }
+                });
+                let proj_popup_id = egui::Popup::default_response_id(&proj_resp.response);
+                if any_open
+                    && proj_resp.response.hovered()
+                    && !proj_resp.response.clicked()
+                    && !egui::Popup::is_id_open(&ctx, proj_popup_id)
+                {
+                    egui::Popup::open_id(&ctx, proj_popup_id);
+                }
 
                 let repo_resp = ui.menu_button("Repository", |ui| {
                     if ui.button("Fetch").clicked() {
@@ -1115,6 +1396,13 @@ impl eframe::App for App {
         if toggle_stash {
             self.show_stash = !self.show_stash;
             self.refresh_commits();
+        }
+        if close_project {
+            self.startup_error = Some(String::new());
+            self.project_list = projects::load();
+            projects::prune_missing(&mut self.project_list);
+        } else if let Some(path) = project_to_open {
+            self.open_repo(path);
         }
         if show_about {
             self.about_dialog_open = true;
