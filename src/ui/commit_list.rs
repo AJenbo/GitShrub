@@ -203,6 +203,12 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
                 // Ref labels (branches and tags).
                 for ref_name in &refs {
+                    let is_remote = app.remotes.iter().any(|remote| {
+                        ref_name.starts_with(remote)
+                            && ref_name.as_bytes().get(remote.len()) == Some(&b'/')
+                    });
+                    let is_current_branch = *ref_name == app.current_branch;
+
                     let (label_text, bg_color, text_color) = if ref_name.contains("@{") {
                         // Reflog entry (e.g. "HEAD@{3} commit (amend)")
                         (
@@ -217,11 +223,17 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             egui::Color32::from_rgb(80, 60, 20),
                             egui::Color32::from_rgb(240, 200, 80),
                         )
-                    } else if ref_name.contains('/') {
+                    } else if is_remote {
                         (
                             format!("[{}]", ref_name),
                             egui::Color32::from_rgb(30, 60, 30),
                             egui::Color32::from_rgb(130, 220, 130),
+                        )
+                    } else if is_current_branch {
+                        (
+                            format!("[{}]", ref_name),
+                            egui::Color32::from_rgb(30, 60, 100),
+                            egui::Color32::from_rgb(150, 220, 255),
                         )
                     } else {
                         (
@@ -231,10 +243,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         )
                     };
 
-                    let rich = egui::RichText::new(&label_text)
+                    let mut rich = egui::RichText::new(&label_text)
                         .monospace()
                         .color(text_color)
                         .background_color(bg_color);
+                    if is_current_branch {
+                        rich = rich.underline();
+                    }
                     ui.label(rich);
                 }
 
@@ -383,12 +398,23 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     let local_branches: Vec<&String> = refs
                         .iter()
                         .filter(|r| {
-                            !r.starts_with("tag: ") && !r.contains('/') && !r.contains("@{")
+                            !r.starts_with("tag: ")
+                                && !r.contains("@{")
+                                && !app.remotes.iter().any(|remote| {
+                                    r.starts_with(remote)
+                                        && r.as_bytes().get(remote.len()) == Some(&b'/')
+                                })
                         })
                         .collect();
                     let remote_branches: Vec<&String> = refs
                         .iter()
-                        .filter(|r| r.contains('/') && !r.contains("@{"))
+                        .filter(|r| {
+                            !r.contains("@{")
+                                && app.remotes.iter().any(|remote| {
+                                    r.starts_with(remote)
+                                        && r.as_bytes().get(remote.len()) == Some(&b'/')
+                                })
+                        })
                         .collect();
                     let tags: Vec<String> = refs
                         .iter()
@@ -578,6 +604,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 }
 
 /// Paint the graph column for a single row: edges (lines) and the commit node (circle).
+///
+/// Drawing is split into two halves around the node center:
+/// - **Top half** (`rect.top()` → `center_y`): incoming lines from the previous row.
+/// - **Bottom half** (`center_y` → `bottom_y`): outgoing edges to the next row.
+///
+/// This ensures branch tips have no line above the node, root commits have
+/// no line below the node, and branch/merge points connect at the node center.
 fn paint_graph_row(
     ui: &egui::Ui,
     rect: Rect,
@@ -585,10 +618,13 @@ fn paint_graph_row(
     row_height: f32,
     row_spacing: f32,
 ) {
-    // Extend the paint region downward to cover the inter-row spacing gap.
-    // Without this, vertical lines have visible breaks between rows.
-    let extended_rect =
-        Rect::from_min_max(rect.min, Pos2::new(rect.max.x, rect.max.y + row_spacing));
+    // Extend the paint region downward to cover the next row's center.
+    // Diagonal edges draw all the way to the next node, which is
+    // row_spacing + row_height*0.5 below rect.bottom().
+    let extended_rect = Rect::from_min_max(
+        rect.min,
+        Pos2::new(rect.max.x, rect.max.y + row_spacing + row_height * 0.5),
+    );
     let painter = ui.painter_at(extended_rect);
     let line_width = 1.8;
 
@@ -598,7 +634,29 @@ fn paint_graph_row(
     // Helper: x position for a given lane column within the graph rect.
     let lane_x = |col: usize| -> f32 { rect.left() + LANE_WIDTH * 0.5 + col as f32 * LANE_WIDTH };
 
-    // Draw edges first (behind the node).
+    // The center of the next row's node. Diagonal edges extend all the
+    // way here so that merges connect directly into the target node
+    // instead of stopping one half-row short.
+    let next_center_y = bottom_y + row_height * 0.5;
+
+    // --- Top half: draw incoming lines from rect.top() to center_y ---
+    // These represent continuations from the previous row's edges arriving
+    // into this row. Without an incoming entry, no line is drawn above
+    // the node (correct for branch tips). Diagonal arrivals already
+    // reach center_y, so we skip the vertical for those.
+    for &(col, color_index, diagonal) in &row.incoming {
+        if !diagonal {
+            let color = graph::lane_color(color_index);
+            let stroke = Stroke::new(line_width, color);
+            let x = lane_x(col);
+            painter.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, center_y)], stroke);
+        }
+    }
+
+    // --- Bottom half: draw outgoing edges from center_y downward ---
+    // Straight edges go from center_y to bottom_y (top of the next row).
+    // Diagonal edges extend to next_center_y (the next row's node) so
+    // that branch/merge lines connect directly into the target commit.
     for edge in &row.edges {
         let color = graph::lane_color(edge.color_index);
         let stroke = Stroke::new(line_width, color);
@@ -607,22 +665,15 @@ fn paint_graph_row(
         let to_x = lane_x(edge.to_col);
 
         if edge.from_col == edge.to_col {
-            // Straight vertical line through the full row height plus spacing.
+            // Straight vertical line from center down through the spacing gap.
             painter.line_segment(
-                [Pos2::new(from_x, rect.top()), Pos2::new(to_x, bottom_y)],
+                [Pos2::new(from_x, center_y), Pos2::new(to_x, bottom_y)],
                 stroke,
             );
         } else {
-            // Diagonal connector: go from (from_x, center) to (to_x, bottom).
-            // Draw in two segments for a smoother look:
-            // 1. Vertical from top to center (at from_x).
-            // 2. Diagonal from center to bottom+spacing (from from_x to to_x).
+            // Diagonal connector from (from_x, center) to (to_x, next_center).
             painter.line_segment(
-                [Pos2::new(from_x, rect.top()), Pos2::new(from_x, center_y)],
-                stroke,
-            );
-            painter.line_segment(
-                [Pos2::new(from_x, center_y), Pos2::new(to_x, bottom_y)],
+                [Pos2::new(from_x, center_y), Pos2::new(to_x, next_center_y)],
                 stroke,
             );
         }

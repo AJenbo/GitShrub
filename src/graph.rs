@@ -10,10 +10,15 @@ pub struct GraphRow {
     /// Total number of active lanes for this row (determines graph width).
     pub num_lanes: usize,
     /// Edges to draw for this row. Each edge connects a column in this row
-    /// to a column in the next row.
+    /// to a column in the next row (outgoing, below the node).
     pub edges: Vec<Edge>,
     /// Color index for this commit's lane (for color-coding).
     pub node_color_index: usize,
+    /// Incoming lanes from the previous row: (column, color_index, diagonal).
+    /// Used to draw the top half of lines arriving at this row's node center.
+    /// When `diagonal` is true, the previous row's edge already drew a diagonal
+    /// reaching this row's center, so no top-half vertical is needed.
+    pub incoming: Vec<(usize, usize, bool)>,
 }
 
 /// An edge connecting a lane in the current row to a lane in the next row.
@@ -320,11 +325,25 @@ pub fn compute_graph(commits: &[Commit]) -> Vec<GraphRow> {
 
         let num_lanes = lanes.len().max(next_lanes.len());
 
+        // Compute incoming lanes: these are the to_col targets from the
+        // previous row's edges, telling us which columns have lines
+        // arriving from above into this row.
+        let incoming = if let Some(prev_row) = rows.last() {
+            prev_row
+                .edges
+                .iter()
+                .map(|e| (e.to_col, e.color_index, e.from_col != e.to_col))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         rows.push(GraphRow {
             node_col,
             num_lanes,
             edges,
             node_color_index,
+            incoming,
         });
 
         lanes = next_lanes;

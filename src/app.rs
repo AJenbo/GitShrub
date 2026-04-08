@@ -136,6 +136,10 @@ pub struct App {
 
     /// Name text field in the add-remote dialog (auto-derived from URL, but editable).
     pub add_remote_name: String,
+
+    /// Cached list of remote names (e.g. ["origin", "upstream"]).
+    /// Used to distinguish local branches with slashes from remote tracking refs.
+    pub remotes: Vec<String>,
 }
 
 impl App {
@@ -194,6 +198,7 @@ impl App {
             add_remote_dialog_open: false,
             add_remote_url: String::new(),
             add_remote_name: String::new(),
+            remotes: Vec::new(),
         };
 
         app.refresh_commits();
@@ -245,11 +250,13 @@ impl App {
             add_remote_dialog_open: false,
             add_remote_url: String::new(),
             add_remote_name: String::new(),
+            remotes: Vec::new(),
         }
     }
 
     /// Reload the commit list from git.
     pub fn refresh_commits(&mut self) {
+        self.remotes = git::list_remotes(&self.repo_path).unwrap_or_default();
         // If --reflog is enabled, discover orphaned reflog SHAs first so we
         // can pass them as extra starting points to `git log`. This lets git
         // handle topo-sorting and deduplication in a single pass.
@@ -364,11 +371,10 @@ impl App {
             .as_deref()
             .unwrap_or(self.current_branch.as_str());
 
-        match (&self.path_filter, self.show_all) {
-            (Some(path), true) => format!("GitShrub - {} - {} (all branches)", name, path),
-            (Some(path), false) => format!("GitShrub - {} - {} [{}]", name, path, branch),
-            (None, true) => format!("GitShrub - {} (all branches)", name),
-            (None, false) => format!("GitShrub - {} [{}]", name, branch),
+        if let Some(path) = &self.path_filter {
+            format!("GitShrub - {} - {} [{}]", name, path, branch)
+        } else {
+            format!("GitShrub - {} [{}]", name, branch)
         }
     }
 
