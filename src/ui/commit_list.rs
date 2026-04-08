@@ -65,8 +65,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     // We handle keys before building the scroll area so that a
     // scroll-to request generated here is picked up in the same frame.
     let mut keyboard_select: Option<usize> = None;
+    let selection_locked = app.is_selection_locked();
 
-    if app.create_branch_sha.is_none() {
+    if !selection_locked && app.create_branch_sha.is_none() {
         let events = ui.input(|i| {
             (
                 i.key_pressed(egui::Key::ArrowUp),
@@ -495,6 +496,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         app.run_git_action(|repo| git::revert_commit(repo, &sha));
                         ui.close();
                     }
+                    if ui.button("Bisect").clicked() {
+                        let sha = full_sha.clone();
+                        app.start_bisect(&sha);
+                        ui.close();
+                    }
 
                     ui.separator();
 
@@ -520,6 +526,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     });
 
     // Apply the click outside the borrow of commits.
+    // During bisect the selection is locked to the current HEAD commit.
+    if selection_locked {
+        return;
+    }
     // Keyboard selection takes precedence if both happen in the same frame.
     if let Some(idx) = keyboard_select {
         app.select_commit(idx);

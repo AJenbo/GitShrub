@@ -112,6 +112,7 @@ Right-clicking a **branch/tag label** or a **commit row** opens a context menu:
 | Reset --hard    | Commit              | `git reset --hard <sha>`                |
 | Revert          | Commit              | `git revert <sha>`                      |
 | Cherry-pick     | Commit              | `git cherry-pick <sha>`                 |
+| Bisect          | Commit              | `git bisect start && git bisect bad HEAD && git bisect good <sha>` |
 | Push            | Menu bar             | `git push [--set-upstream] [--force] <remote> <refspec>` |
 
 After any mutating action, the commit list is refreshed.
@@ -141,6 +142,16 @@ a banner appears at the top of the window with a one-click abort button that run
 the appropriate cancel command (`git rebase --abort`, `git cherry-pick --abort`,
 `git merge --abort`, `git revert --abort`, etc.). A "Continue" button is also shown
 where applicable.
+
+During a bisect, the banner also shows **"Mark good"**, **"Mark bad"**, and
+**"Skip"** buttons. Each click runs `git bisect good`, `git bisect bad`, or
+`git bisect skip` on the current HEAD, git checks out the next midpoint, and
+the commit list refreshes. When git narrows the range down to one commit it
+reports the first bad commit in the status bar.
+
+While a bisect is in progress, commit selection is locked to the current HEAD
+commit. Clicking or using keyboard navigation in the commit list has no effect;
+the diff view always shows the commit under test.
 
 ## Module Structure
 

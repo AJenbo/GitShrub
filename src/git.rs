@@ -126,6 +126,17 @@ pub fn current_branch(repo_path: &str) -> Result<String, String> {
     }
 }
 
+/// Resolve HEAD to a full commit SHA.
+pub fn head_sha(repo_path: &str) -> Result<String, String> {
+    let output = run_git(repo_path, &["rev-parse", "HEAD"])?;
+    let sha = output.trim().to_string();
+    if sha.is_empty() {
+        Err("Could not resolve HEAD".into())
+    } else {
+        Ok(sha)
+    }
+}
+
 /// Load commits from git log.
 ///
 /// - `show_all`: if true, passes `--all` to show all branches.
@@ -686,6 +697,31 @@ pub fn reset_mixed(repo_path: &str, sha: &str) -> Result<String, String> {
 /// Reset the current branch to the given SHA with `--hard` (discards everything).
 pub fn reset_hard(repo_path: &str, sha: &str) -> Result<String, String> {
     run_git(repo_path, &["reset", "--hard", sha])
+}
+
+/// Start a bisect session: HEAD is bad (current broken state), the selected
+/// older commit is good (known working). Returns the output from the final
+/// marking which tells the user what commit was checked out for testing (or
+/// identifies the first bad commit immediately if the range is small enough).
+pub fn bisect_start_bad_head_good(repo_path: &str, good_sha: &str) -> Result<String, String> {
+    run_git(repo_path, &["bisect", "start"])?;
+    run_git(repo_path, &["bisect", "bad", "HEAD"])?;
+    run_git(repo_path, &["bisect", "good", good_sha])
+}
+
+/// Mark the current HEAD as good during an active bisect.
+pub fn bisect_good(repo_path: &str) -> Result<String, String> {
+    run_git(repo_path, &["bisect", "good"])
+}
+
+/// Mark the current HEAD as bad during an active bisect.
+pub fn bisect_bad(repo_path: &str) -> Result<String, String> {
+    run_git(repo_path, &["bisect", "bad"])
+}
+
+/// Skip the current HEAD during an active bisect (untestable commit).
+pub fn bisect_skip(repo_path: &str) -> Result<String, String> {
+    run_git(repo_path, &["bisect", "skip"])
 }
 
 /// Revert the given commit (creates a new commit that undoes it).

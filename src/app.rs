@@ -391,6 +391,81 @@ impl App {
         self.select_branch_commit();
     }
 
+    /// Start a bisect session: HEAD is bad (current broken state), the selected
+    /// older commit is good (known working). Runs `git bisect start`,
+    /// `git bisect bad HEAD`, `git bisect good <sha>` in sequence.
+    /// On success git checks out a midpoint commit for testing.
+    pub fn start_bisect(&mut self, good_sha: &str) {
+        match git::bisect_start_bad_head_good(&self.repo_path, good_sha) {
+            Ok(output) => {
+                self.handle_bisect_output(&output);
+            }
+            Err(e) => {
+                self.status_message = Some(e);
+            }
+        }
+        self.refresh_commits();
+        self.select_head_commit();
+    }
+
+    /// Mark the current HEAD as good, bad, or skip during an active bisect.
+    pub fn bisect_mark_good(&mut self) {
+        self.bisect_step(git::bisect_good(&self.repo_path));
+    }
+
+    pub fn bisect_mark_bad(&mut self) {
+        self.bisect_step(git::bisect_bad(&self.repo_path));
+    }
+
+    pub fn bisect_mark_skip(&mut self) {
+        self.bisect_step(git::bisect_skip(&self.repo_path));
+    }
+
+    fn bisect_step(&mut self, result: Result<String, String>) {
+        match result {
+            Ok(output) => {
+                self.handle_bisect_output(&output);
+            }
+            Err(e) => {
+                self.status_message = Some(e);
+            }
+        }
+        self.refresh_commits();
+        self.select_head_commit();
+    }
+
+    /// Parse bisect output and set status message when the culprit is found.
+    fn handle_bisect_output(&mut self, output: &str) {
+        if output.contains("is the first bad commit") {
+            self.status_message = Some(output.trim().to_string());
+        } else {
+            self.status_message = None;
+        }
+        self.current_branch =
+            git::current_branch(&self.repo_path).unwrap_or_else(|_| "detached".into());
+    }
+
+    /// Select the commit that HEAD currently points to (by SHA).
+    /// Used during bisect when HEAD is detached and `select_branch_commit`
+    /// cannot find a match by branch name.
+    fn select_head_commit(&mut self) {
+        if let Ok(head_sha) = git::head_sha(&self.repo_path)
+            && let Some(idx) = self.commits.iter().position(|c| c.full_sha == head_sha)
+        {
+            self.select_commit(idx);
+            self.scroll_to_commit_idx = Some(idx);
+            return;
+        }
+        // Fallback: try the branch-name approach.
+        self.select_branch_commit();
+    }
+
+    /// Whether commit selection in the commit list should be locked
+    /// (during bisect, only the current HEAD commit matters).
+    pub fn is_selection_locked(&self) -> bool {
+        matches!(self.in_progress_op, Some(InProgressOp::Bisect))
+    }
+
     /// Open the cherry-pick dialog for the current multi-selection.
     /// Converts selected commits into dialog entries (oldest-first).
     pub fn open_cherry_pick_dialog(&mut self) {
@@ -575,6 +650,17 @@ impl App {
             .show(ctx, |ui| {
                 ui.set_min_width(400.0);
 
+                let name_empty = self.add_remote_name.trim().is_empty();
+                let url_empty = self.add_remote_url.trim().is_empty();
+                let can_add = !name_empty && !url_empty;
+
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    do_close = true;
+                }
+                if can_add && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    do_add = true;
+                }
+
                 ui.horizontal(|ui| {
                     ui.label("URL:");
                     let response = ui.text_edit_singleline(&mut self.add_remote_url);
@@ -601,9 +687,7 @@ impl App {
                 ui.add_space(8.0);
 
                 ui.horizontal(|ui| {
-                    let name_empty = self.add_remote_name.trim().is_empty();
-                    let url_empty = self.add_remote_url.trim().is_empty();
-                    ui.add_enabled_ui(!name_empty && !url_empty, |ui| {
+                    ui.add_enabled_ui(can_add, |ui| {
                         if ui.button("Add").clicked() {
                             do_add = true;
                         }
@@ -654,6 +738,13 @@ impl App {
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.set_min_width(450.0);
+
+                if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                    do_close = true;
+                }
+                if !self.push_force_confirm && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    do_push = true;
+                }
 
                 // Header: "Push <branch> to:"
                 ui.horizontal(|ui| {
@@ -988,6 +1079,9 @@ impl eframe::App for App {
 
         // About dialog
         if self.about_dialog_open {
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape) || i.key_pressed(egui::Key::Enter)) {
+                self.about_dialog_open = false;
+            }
             let mut open = self.about_dialog_open;
             egui::Window::new("About GitShrub")
                 .collapsible(false)
@@ -1035,11 +1129,15 @@ impl eframe::App for App {
         // In-progress operation banner (shown above status bar).
         let mut abort_clicked = false;
         let mut continue_clicked = false;
+        let mut bisect_good_clicked = false;
+        let mut bisect_bad_clicked = false;
+        let mut bisect_skip_clicked = false;
         if let Some(ref op) = self.in_progress_op {
             let op_label = op.label().to_string();
             let abort_label = op.abort_label().to_string();
             let can_continue = op.supports_continue();
             let continue_label = op.continue_label().to_string();
+            let is_bisect = matches!(op, InProgressOp::Bisect);
 
             egui::Panel::top("op_in_progress_bar").show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -1050,6 +1148,36 @@ impl eframe::App for App {
                             .size(14.0),
                     );
                     ui.add_space(12.0);
+                    if is_bisect {
+                        if ui
+                            .button(
+                                egui::RichText::new("Mark good")
+                                    .color(egui::Color32::from_rgb(100, 220, 100)),
+                            )
+                            .clicked()
+                        {
+                            bisect_good_clicked = true;
+                        }
+                        if ui
+                            .button(
+                                egui::RichText::new("Mark bad")
+                                    .color(egui::Color32::from_rgb(255, 140, 100)),
+                            )
+                            .clicked()
+                        {
+                            bisect_bad_clicked = true;
+                        }
+                        if ui
+                            .button(
+                                egui::RichText::new("Skip")
+                                    .color(egui::Color32::from_rgb(180, 180, 180)),
+                            )
+                            .clicked()
+                        {
+                            bisect_skip_clicked = true;
+                        }
+                        ui.add_space(8.0);
+                    }
                     if ui
                         .button(
                             egui::RichText::new(&abort_label)
@@ -1071,6 +1199,15 @@ impl eframe::App for App {
                     }
                 });
             });
+        }
+        if bisect_good_clicked {
+            self.bisect_mark_good();
+        }
+        if bisect_bad_clicked {
+            self.bisect_mark_bad();
+        }
+        if bisect_skip_clicked {
+            self.bisect_mark_skip();
         }
         if abort_clicked && let Some(ref op) = self.in_progress_op.clone() {
             match git::abort_op(&self.repo_path, op) {
