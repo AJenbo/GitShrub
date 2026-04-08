@@ -137,6 +137,10 @@
 
 ## Milestone 14: Commit Mode
 
+- [x] Virtual "Working Tree" entry at top of commit list when there are uncommitted changes
+- [x] Selecting the working tree entry shows combined staged/unstaged/untracked diff
+- [x] Distinct orange styling for the working tree row and info panel
+- [x] No context menu on the working tree entry (commit operations don't apply)
 - [ ] Commit mode UI with staged / changed / untracked file lists
 - [ ] Commit summary and description fields
 - [ ] Diff view of selected file

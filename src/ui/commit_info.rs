@@ -1,8 +1,13 @@
-use crate::git::Commit;
+use crate::git::{Commit, WORKING_TREE_SHA};
 
 /// Renders the commit info bar (middle section).
 /// Shows the full SHA, author, date, and commit message.
 pub fn show(ui: &mut egui::Ui, commit: &Commit) {
+    if commit.full_sha == WORKING_TREE_SHA {
+        show_working_tree(ui, commit);
+        return;
+    }
+
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
 
@@ -50,4 +55,22 @@ pub fn show(ui: &mut egui::Ui, commit: &Commit) {
     if !body.is_empty() {
         ui.label(egui::RichText::new(body).color(egui::Color32::from_rgb(160, 160, 160)));
     }
+}
+
+/// Renders the info bar for the virtual working tree entry.
+fn show_working_tree(ui: &mut egui::Ui, commit: &Commit) {
+    ui.label(
+        egui::RichText::new(&commit.subject)
+            .strong()
+            .color(egui::Color32::from_rgb(255, 180, 80)),
+    );
+
+    ui.add_space(4.0);
+
+    ui.label(
+        egui::RichText::new(
+            "These are your uncommitted changes (staged, unstaged, and untracked files).",
+        )
+        .color(egui::Color32::from_rgb(160, 160, 160)),
+    );
 }

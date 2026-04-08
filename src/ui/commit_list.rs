@@ -1,7 +1,7 @@
 use egui::{self, Pos2, Rect, Stroke, Vec2};
 
 use crate::app::App;
-use crate::git;
+use crate::git::{self, WORKING_TREE_SHA};
 use crate::graph;
 
 /// Horizontal spacing between lane centers in the graph column.
@@ -173,6 +173,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
             // Read commit fields before any mutable borrow.
             let commit = &app.commits[idx];
+            let is_working_tree = commit.full_sha == WORKING_TREE_SHA;
             let refs = commit.refs.clone();
             let full_sha = commit.full_sha.clone();
             let subject = commit.subject.clone();
@@ -254,7 +255,9 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
 
                 // Commit message: render it but clip to the available message area.
-                let msg_color = if is_active {
+                let msg_color = if is_working_tree {
+                    egui::Color32::from_rgb(255, 180, 80)
+                } else if is_active {
                     egui::Color32::WHITE
                 } else {
                     egui::Color32::from_rgb(220, 220, 220)
@@ -366,188 +369,202 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
 
             // Context menu: show multi-select menu when there is a
             // multi-selection, otherwise show the normal single-commit menu.
+            // Skip the context menu entirely for the virtual working tree row.
             let multi_count = app.multi_selection.len();
-            row_response.context_menu(|ui| {
-                if multi_count > 1 {
-                    // --- Multi-select context menu ---
-                    ui.label(
-                        egui::RichText::new(format!("{} commits selected", multi_count))
-                            .strong()
-                            .color(egui::Color32::from_rgb(200, 200, 200)),
-                    );
-                    ui.separator();
+            if is_working_tree {
+                // No context menu for working tree entry.
+            } else {
+                row_response.context_menu(|ui| {
+                    if multi_count > 1 {
+                        // --- Multi-select context menu ---
+                        ui.label(
+                            egui::RichText::new(format!("{} commits selected", multi_count))
+                                .strong()
+                                .color(egui::Color32::from_rgb(200, 200, 200)),
+                        );
+                        ui.separator();
 
-                    if ui
-                        .button(format!("Cherry-pick {} commits…", multi_count))
-                        .clicked()
-                    {
-                        app.open_cherry_pick_dialog();
-                        ui.close();
-                    }
-                } else {
-                    // --- Single-commit context menu ---
-                    let short = &full_sha[..full_sha.len().min(12)];
-                    ui.label(
-                        egui::RichText::new(format!("{}  {}", short, &subject))
-                            .strong()
-                            .color(egui::Color32::from_rgb(200, 200, 200)),
-                    );
-                    ui.separator();
-
-                    // Branch/tag operations (shown only when refs are present).
-                    let local_branches: Vec<&String> = refs
-                        .iter()
-                        .filter(|r| {
-                            !r.starts_with("tag: ")
-                                && !r.contains("@{")
-                                && !app.remotes.iter().any(|remote| {
-                                    r.starts_with(remote)
-                                        && r.as_bytes().get(remote.len()) == Some(&b'/')
-                                })
-                        })
-                        .collect();
-                    let remote_branches: Vec<&String> = refs
-                        .iter()
-                        .filter(|r| {
-                            !r.contains("@{")
-                                && app.remotes.iter().any(|remote| {
-                                    r.starts_with(remote)
-                                        && r.as_bytes().get(remote.len()) == Some(&b'/')
-                                })
-                        })
-                        .collect();
-                    let tags: Vec<String> = refs
-                        .iter()
-                        .filter(|r| r.starts_with("tag: "))
-                        .map(|r| r.trim_start_matches("tag: ").to_string())
-                        .collect();
-
-                    if !local_branches.is_empty() || !remote_branches.is_empty() || !tags.is_empty()
-                    {
-                        for branch in &local_branches {
-                            ui.menu_button(
-                                egui::RichText::new(format!("[{}]", branch))
-                                    .monospace()
-                                    .color(egui::Color32::from_rgb(100, 180, 255)),
-                                |ui| {
-                                    if ui.button("Checkout").clicked() {
-                                        let b = (*branch).clone();
-                                        app.run_git_action(|repo| git::checkout_branch(repo, &b));
-                                        ui.close();
-                                    }
-                                    if ui.button("Delete branch").clicked() {
-                                        let b = (*branch).clone();
-                                        app.run_git_action(|repo| git::delete_branch(repo, &b));
-                                        ui.close();
-                                    }
-                                },
-                            );
+                        if ui
+                            .button(format!("Cherry-pick {} commits…", multi_count))
+                            .clicked()
+                        {
+                            app.open_cherry_pick_dialog();
+                            ui.close();
                         }
+                    } else {
+                        // --- Single-commit context menu ---
+                        let short = &full_sha[..full_sha.len().min(12)];
+                        ui.label(
+                            egui::RichText::new(format!("{}  {}", short, &subject))
+                                .strong()
+                                .color(egui::Color32::from_rgb(200, 200, 200)),
+                        );
+                        ui.separator();
 
-                        for branch in &remote_branches {
-                            ui.menu_button(
-                                egui::RichText::new(format!("[{}]", branch))
-                                    .monospace()
-                                    .color(egui::Color32::from_rgb(130, 220, 130)),
-                                |ui| {
-                                    if ui.button("Checkout").clicked() {
-                                        let b = (*branch).clone();
-                                        app.run_git_action(|repo| git::checkout_branch(repo, &b));
-                                        ui.close();
-                                    }
-                                    // Extract the remote name (e.g. "origin" from "origin/main").
-                                    if let Some(remote) = branch.split('/').next()
-                                        && ui
-                                            .button(
-                                                egui::RichText::new(format!("Remove {}", remote))
+                        // Branch/tag operations (shown only when refs are present).
+                        let local_branches: Vec<&String> = refs
+                            .iter()
+                            .filter(|r| {
+                                !r.starts_with("tag: ")
+                                    && !r.contains("@{")
+                                    && !app.remotes.iter().any(|remote| {
+                                        r.starts_with(remote)
+                                            && r.as_bytes().get(remote.len()) == Some(&b'/')
+                                    })
+                            })
+                            .collect();
+                        let remote_branches: Vec<&String> = refs
+                            .iter()
+                            .filter(|r| {
+                                !r.contains("@{")
+                                    && app.remotes.iter().any(|remote| {
+                                        r.starts_with(remote)
+                                            && r.as_bytes().get(remote.len()) == Some(&b'/')
+                                    })
+                            })
+                            .collect();
+                        let tags: Vec<String> = refs
+                            .iter()
+                            .filter(|r| r.starts_with("tag: "))
+                            .map(|r| r.trim_start_matches("tag: ").to_string())
+                            .collect();
+
+                        if !local_branches.is_empty()
+                            || !remote_branches.is_empty()
+                            || !tags.is_empty()
+                        {
+                            for branch in &local_branches {
+                                ui.menu_button(
+                                    egui::RichText::new(format!("[{}]", branch))
+                                        .monospace()
+                                        .color(egui::Color32::from_rgb(100, 180, 255)),
+                                    |ui| {
+                                        if ui.button("Checkout").clicked() {
+                                            let b = (*branch).clone();
+                                            app.run_git_action(|repo| {
+                                                git::checkout_branch(repo, &b)
+                                            });
+                                            ui.close();
+                                        }
+                                        if ui.button("Delete branch").clicked() {
+                                            let b = (*branch).clone();
+                                            app.run_git_action(|repo| git::delete_branch(repo, &b));
+                                            ui.close();
+                                        }
+                                    },
+                                );
+                            }
+
+                            for branch in &remote_branches {
+                                ui.menu_button(
+                                    egui::RichText::new(format!("[{}]", branch))
+                                        .monospace()
+                                        .color(egui::Color32::from_rgb(130, 220, 130)),
+                                    |ui| {
+                                        if ui.button("Checkout").clicked() {
+                                            let b = (*branch).clone();
+                                            app.run_git_action(|repo| {
+                                                git::checkout_branch(repo, &b)
+                                            });
+                                            ui.close();
+                                        }
+                                        // Extract the remote name (e.g. "origin" from "origin/main").
+                                        if let Some(remote) = branch.split('/').next()
+                                            && ui
+                                                .button(
+                                                    egui::RichText::new(format!(
+                                                        "Remove {}",
+                                                        remote
+                                                    ))
                                                     .color(egui::Color32::from_rgb(255, 100, 100)),
-                                            )
-                                            .clicked()
-                                    {
-                                        let r = remote.to_string();
-                                        app.run_git_action(|repo| git::remove_remote(repo, &r));
-                                        ui.close();
-                                    }
-                                },
-                            );
+                                                )
+                                                .clicked()
+                                        {
+                                            let r = remote.to_string();
+                                            app.run_git_action(|repo| git::remove_remote(repo, &r));
+                                            ui.close();
+                                        }
+                                    },
+                                );
+                            }
+
+                            for tag in &tags {
+                                ui.menu_button(
+                                    egui::RichText::new(format!("<{}>", tag))
+                                        .monospace()
+                                        .color(egui::Color32::from_rgb(240, 200, 80)),
+                                    |ui| {
+                                        if ui.button("Delete tag").clicked() {
+                                            let t = tag.clone();
+                                            app.run_git_action(|repo| git::delete_tag(repo, &t));
+                                            ui.close();
+                                        }
+                                    },
+                                );
+                            }
+
+                            ui.separator();
                         }
 
-                        for tag in &tags {
-                            ui.menu_button(
-                                egui::RichText::new(format!("<{}>", tag))
-                                    .monospace()
-                                    .color(egui::Color32::from_rgb(240, 200, 80)),
-                                |ui| {
-                                    if ui.button("Delete tag").clicked() {
-                                        let t = tag.clone();
-                                        app.run_git_action(|repo| git::delete_tag(repo, &t));
-                                        ui.close();
-                                    }
-                                },
-                            );
+                        // Generic commit operations (always shown).
+                        if ui.button("Create branch here...").clicked() {
+                            app.create_branch_sha = Some(full_sha.clone());
+                            ui.close();
+                        }
+                        if ui.button("Create tag here...").clicked() {
+                            app.create_tag_sha = Some(full_sha.clone());
+                            ui.close();
+                        }
+                        if ui.button("Rebase onto here").clicked() {
+                            let sha = full_sha.clone();
+                            app.run_git_action(|repo| git::rebase(repo, &sha));
+                            ui.close();
+                        }
+                        if ui.button("Interactive rebase onto here...").clicked() {
+                            let sha = full_sha.clone();
+                            app.open_rebase_dialog(&sha, &app.current_branch.clone());
+                            ui.close();
                         }
 
                         ui.separator();
-                    }
 
-                    // Generic commit operations (always shown).
-                    if ui.button("Create branch here...").clicked() {
-                        app.create_branch_sha = Some(full_sha.clone());
-                        ui.close();
-                    }
-                    if ui.button("Create tag here...").clicked() {
-                        app.create_tag_sha = Some(full_sha.clone());
-                        ui.close();
-                    }
-                    if ui.button("Rebase onto here").clicked() {
-                        let sha = full_sha.clone();
-                        app.run_git_action(|repo| git::rebase(repo, &sha));
-                        ui.close();
-                    }
-                    if ui.button("Interactive rebase onto here...").clicked() {
-                        let sha = full_sha.clone();
-                        app.open_rebase_dialog(&sha, &app.current_branch.clone());
-                        ui.close();
-                    }
+                        if ui.button("Cherry-pick").clicked() {
+                            let sha = full_sha.clone();
+                            app.run_git_action(|repo| git::cherry_pick(repo, &sha));
+                            ui.close();
+                        }
+                        if ui.button("Revert").clicked() {
+                            let sha = full_sha.clone();
+                            app.run_git_action(|repo| git::revert_commit(repo, &sha));
+                            ui.close();
+                        }
+                        if ui.button("Bisect").clicked() {
+                            let sha = full_sha.clone();
+                            app.start_bisect(&sha);
+                            ui.close();
+                        }
 
-                    ui.separator();
+                        ui.separator();
 
-                    if ui.button("Cherry-pick").clicked() {
-                        let sha = full_sha.clone();
-                        app.run_git_action(|repo| git::cherry_pick(repo, &sha));
-                        ui.close();
+                        if ui.button("Reset --mixed to here").clicked() {
+                            let sha = full_sha.clone();
+                            app.run_git_action(|repo| git::reset_mixed(repo, &sha));
+                            ui.close();
+                        }
+                        if ui
+                            .button(
+                                egui::RichText::new("Reset --hard to here")
+                                    .color(egui::Color32::from_rgb(255, 100, 100)),
+                            )
+                            .clicked()
+                        {
+                            let sha = full_sha.clone();
+                            app.run_git_action(|repo| git::reset_hard(repo, &sha));
+                            ui.close();
+                        }
                     }
-                    if ui.button("Revert").clicked() {
-                        let sha = full_sha.clone();
-                        app.run_git_action(|repo| git::revert_commit(repo, &sha));
-                        ui.close();
-                    }
-                    if ui.button("Bisect").clicked() {
-                        let sha = full_sha.clone();
-                        app.start_bisect(&sha);
-                        ui.close();
-                    }
-
-                    ui.separator();
-
-                    if ui.button("Reset --mixed to here").clicked() {
-                        let sha = full_sha.clone();
-                        app.run_git_action(|repo| git::reset_mixed(repo, &sha));
-                        ui.close();
-                    }
-                    if ui
-                        .button(
-                            egui::RichText::new("Reset --hard to here")
-                                .color(egui::Color32::from_rgb(255, 100, 100)),
-                        )
-                        .clicked()
-                    {
-                        let sha = full_sha.clone();
-                        app.run_git_action(|repo| git::reset_hard(repo, &sha));
-                        ui.close();
-                    }
-                }
-            });
+                });
+            } // end if !is_working_tree
         }
     });
 

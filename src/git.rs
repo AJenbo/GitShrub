@@ -2,6 +2,10 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
+/// Sentinel SHA used for the virtual "Working Tree" entry.
+/// This is not a real commit — it represents uncommitted changes.
+pub const WORKING_TREE_SHA: &str = "0000000000000000000000000000000000000000";
+
 /// A parsed commit from git log.
 #[derive(Debug, Clone)]
 pub struct Commit {
@@ -411,6 +415,101 @@ fn is_root_commit(repo_path: &str, sha: &str) -> bool {
         Ok(output) => output.trim().is_empty(),
         Err(_) => false,
     }
+}
+
+/// Check whether the working tree has any changes (staged, unstaged, or untracked).
+pub fn has_working_changes(repo_path: &str) -> bool {
+    if let Ok(status) = run_git(repo_path, &["status", "--porcelain"])
+        && !status.trim().is_empty()
+    {
+        return true;
+    }
+    false
+}
+
+/// Load a diff of the working tree against HEAD.
+///
+/// Combines staged changes, unstaged changes, and untracked files into a
+/// single `DiffOutput` so it can be displayed like a normal commit diff.
+pub fn load_working_diff(repo_path: &str) -> Result<DiffOutput, String> {
+    // Staged changes (index vs HEAD).
+    let staged = run_git(repo_path, &["diff", "--cached", "--stat", "-p"]).unwrap_or_default();
+
+    // Unstaged changes (working tree vs index).
+    let unstaged = run_git(repo_path, &["diff", "--stat", "-p"]).unwrap_or_default();
+
+    // Untracked files: generate a diff-like output for each.
+    let untracked_list =
+        run_git(repo_path, &["ls-files", "--others", "--exclude-standard"]).unwrap_or_default();
+    let mut untracked_diff = String::new();
+    for path in untracked_list.lines() {
+        let path = path.trim();
+        if path.is_empty() {
+            continue;
+        }
+        // Use `git diff --no-index /dev/null <file>` to generate a proper
+        // unified diff for untracked files. This exits non-zero (differences
+        // found) so we capture output manually.
+        let output = Command::new("git")
+            .args(["diff", "--no-index", "--stat", "-p", "/dev/null", path])
+            .current_dir(repo_path)
+            .output();
+        if let Ok(out) = output {
+            let text = String::from_utf8_lossy(&out.stdout);
+            // Rewrite the header from "/dev/null" to a cleaner "a/path" style.
+            let cleaned = text.replace("a/dev/null", &format!("a/{}", path));
+            if !cleaned.trim().is_empty() {
+                if !untracked_diff.is_empty() {
+                    untracked_diff.push('\n');
+                }
+                untracked_diff.push_str(&cleaned);
+            }
+        }
+    }
+
+    // Combine all sections.
+    let mut raw = String::new();
+    if !staged.trim().is_empty() {
+        raw.push_str(&staged);
+    }
+    if !unstaged.trim().is_empty() {
+        if !raw.is_empty() {
+            raw.push('\n');
+        }
+        raw.push_str(&unstaged);
+    }
+    if !untracked_diff.trim().is_empty() {
+        if !raw.is_empty() {
+            raw.push('\n');
+        }
+        raw.push_str(&untracked_diff);
+    }
+
+    // Build the file list from `git status --porcelain`.
+    let status = run_git(repo_path, &["status", "--porcelain"]).unwrap_or_default();
+    let files: Vec<String> = status
+        .lines()
+        .filter(|l| l.len() > 3)
+        .map(|l| l[3..].trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect();
+
+    // Pre-split diff into lines and build file header index.
+    let lines: Vec<String> = raw.lines().map(|l| l.to_string()).collect();
+    let mut file_header_lines = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if (line.starts_with("diff --git") || line.starts_with("diff --cc"))
+            && let Some(b_path) = line.rsplit(" b/").next()
+        {
+            file_header_lines.push((b_path.to_string(), i));
+        }
+    }
+
+    Ok(DiffOutput {
+        lines,
+        file_header_lines,
+        files,
+    })
 }
 
 /// Verify that the given path is inside a git repository.

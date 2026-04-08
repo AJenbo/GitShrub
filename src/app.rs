@@ -313,6 +313,38 @@ impl App {
                     }
                 }
 
+                // Insert a virtual "Working Tree" entry right above the
+                // current HEAD commit when there are uncommitted changes.
+                // This places it where a new commit would land, even when
+                // viewing all branches and HEAD isn't the first entry.
+                if git::has_working_changes(&self.repo_path) {
+                    let head_sha = git::head_sha(&self.repo_path).unwrap_or_default();
+                    let insert_idx = if head_sha.is_empty() {
+                        0
+                    } else {
+                        commits
+                            .iter()
+                            .position(|c| c.full_sha == head_sha)
+                            .unwrap_or(0)
+                    };
+                    let wt = git::Commit {
+                        full_sha: git::WORKING_TREE_SHA.to_string(),
+                        short_sha: String::new(),
+                        parents: if head_sha.is_empty() {
+                            vec![]
+                        } else {
+                            vec![head_sha]
+                        },
+                        author_name: String::new(),
+                        author_email: String::new(),
+                        date: String::new(),
+                        subject: "Working Tree (uncommitted changes)".to_string(),
+                        body: String::new(),
+                        refs: Vec::new(),
+                    };
+                    commits.insert(insert_idx, wt);
+                }
+
                 self.graph_rows = graph::compute_graph(&commits);
                 // Store the longest author name length for column sizing.
                 self.max_author_chars = commits
@@ -347,7 +379,12 @@ impl App {
         self.scroll_to_diff_line = None;
 
         let sha = self.commits[index].full_sha.clone();
-        match git::load_diff(&self.repo_path, &sha) {
+        let result = if sha == git::WORKING_TREE_SHA {
+            git::load_working_diff(&self.repo_path)
+        } else {
+            git::load_diff(&self.repo_path, &sha)
+        };
+        match result {
             Ok(diff) => {
                 self.diff = Some(diff);
             }
