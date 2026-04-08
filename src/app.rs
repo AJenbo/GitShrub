@@ -129,6 +129,9 @@ pub struct App {
     /// Whether to show the force-push confirmation prompt.
     pub push_force_confirm: bool,
 
+    /// Whether to push tags along with the branch.
+    pub push_tags: bool,
+
     /// Whether the add-remote dialog is open.
     pub add_remote_dialog_open: bool,
 
@@ -202,6 +205,7 @@ impl App {
             push_remote_branches: Vec::new(),
             push_branch_name: String::new(),
             push_force_confirm: false,
+            push_tags: false,
             add_remote_dialog_open: false,
             add_remote_url: String::new(),
             add_remote_name: String::new(),
@@ -255,6 +259,7 @@ impl App {
             push_remote_branches: Vec::new(),
             push_branch_name: String::new(),
             push_force_confirm: false,
+            push_tags: false,
             add_remote_dialog_open: false,
             add_remote_url: String::new(),
             add_remote_name: String::new(),
@@ -897,6 +902,7 @@ impl App {
         };
         let local_branch = self.current_branch.clone();
         let remote_branch = self.push_branch_name.clone();
+        let push_tags = self.push_tags;
 
         let result = if force {
             git::push_force(&self.repo_path, &remote, &local_branch, &remote_branch)
@@ -917,6 +923,13 @@ impl App {
 
         match result {
             Ok(_) => {
+                if push_tags && let Err(e) = git::push_tags(&self.repo_path, &remote) {
+                    self.status_message = Some(format!("Push succeeded but tags failed: {}", e));
+                    self.push_dialog_open = false;
+                    self.push_force_confirm = false;
+                    self.refresh_commits();
+                    return true;
+                }
                 self.status_message = None;
                 self.push_dialog_open = false;
                 self.push_force_confirm = false;
@@ -1157,6 +1170,10 @@ impl App {
                         ui.ctx().data_mut(|d| d.insert_temp(focus_id, true));
                     }
                 });
+
+                ui.add_space(8.0);
+
+                ui.checkbox(&mut self.push_tags, "Push tags");
 
                 ui.add_space(8.0);
 

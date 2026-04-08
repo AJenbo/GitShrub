@@ -777,6 +777,11 @@ pub fn push_force(
     run_git(repo_path, &["push", "--force", remote, &refspec])
 }
 
+/// Push all tags to a remote.
+pub fn push_tags(repo_path: &str, remote: &str) -> Result<String, String> {
+    run_git(repo_path, &["push", remote, "--tags"])
+}
+
 /// Check whether a push failure is due to diverged history (non-fast-forward).
 pub fn is_diverged_push_error(error_message: &str) -> bool {
     let lower = error_message.to_lowercase();
