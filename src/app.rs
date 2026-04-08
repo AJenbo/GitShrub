@@ -461,6 +461,7 @@ impl App {
         const CARD_ROUNDING: f32 = 8.0;
 
         egui::CentralPanel::default().show_inside(ui, |ui| {
+            // Centered header section.
             ui.vertical_centered(|ui| {
                 ui.add_space(40.0);
                 ui.heading(
@@ -485,169 +486,172 @@ impl App {
                 }
 
                 ui.add_space(24.0);
+            });
 
-                if !self.project_list.recent.is_empty() {
-                    ui.separator();
-                    ui.add_space(12.0);
+            // Card grid section — uses the full panel width for proper reflow.
+            if !self.project_list.recent.is_empty() {
+                ui.separator();
+                ui.add_space(12.0);
+                ui.vertical_centered(|ui| {
                     ui.label(
                         egui::RichText::new("Recent repositories")
                             .strong()
                             .color(egui::Color32::from_rgb(200, 200, 200))
                             .size(16.0),
                     );
-                    ui.add_space(12.0);
+                });
+                ui.add_space(12.0);
 
-                    // Compute how many cards fit per row.
-                    let available_width = ui.available_width();
-                    let cols = ((available_width + CARD_SPACING) / (CARD_WIDTH + CARD_SPACING))
-                        .floor()
-                        .max(1.0) as usize;
+                let mut remove_idx: Option<usize> = None;
 
-                    let mut remove_idx: Option<usize> = None;
+                egui::ScrollArea::vertical()
+                    .max_height(ui.available_height() - 40.0)
+                    .show(ui, |ui| {
+                        let inner_width = ui.available_width();
+                        let cols = ((inner_width + CARD_SPACING) / (CARD_WIDTH + CARD_SPACING))
+                            .floor()
+                            .max(1.0) as usize;
+                        let grid_width =
+                            cols as f32 * CARD_WIDTH + (cols - 1).max(0) as f32 * CARD_SPACING;
 
-                    egui::ScrollArea::vertical()
-                        .max_height(ui.available_height() - 40.0)
-                        .show(ui, |ui| {
-                            // Center the grid by adding left padding.
-                            let grid_width =
-                                cols as f32 * CARD_WIDTH + (cols - 1).max(0) as f32 * CARD_SPACING;
-                            let left_pad = ((available_width - grid_width) * 0.5).max(0.0);
+                        let projects = &self.project_list.recent;
+                        let rows = projects.len().div_ceil(cols);
 
-                            let projects = &self.project_list.recent;
-                            let rows = projects.len().div_ceil(cols);
+                        for row in 0..rows {
+                            let start = row * cols;
+                            let end = (start + cols).min(projects.len());
+                            let cards_this_row = end - start;
+                            let row_width = cards_this_row as f32 * CARD_WIDTH
+                                + (cards_this_row - 1).max(0) as f32 * CARD_SPACING;
+                            // Use the full grid width for all full rows so they
+                            // align, but the actual row width for the last
+                            // (partial) row so it centers nicely.
+                            let container_width = if cards_this_row == cols {
+                                grid_width
+                            } else {
+                                row_width
+                            };
 
-                            for row in 0..rows {
-                                ui.horizontal(|ui| {
-                                    ui.add_space(left_pad);
-                                    for col in 0..cols {
-                                        let idx = row * cols + col;
-                                        if idx >= projects.len() {
-                                            break;
-                                        }
-                                        let project = &projects[idx];
+                            ui.horizontal(|ui| {
+                                let pad = ((inner_width - container_width) * 0.5).max(0.0);
+                                ui.add_space(pad);
+                                ui.spacing_mut().item_spacing.x = CARD_SPACING;
+                                for (idx, project) in projects[start..end]
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, p)| (start + i, p))
+                                {
+                                    // Draw a card-shaped button.
+                                    let (rect, response) = ui.allocate_exact_size(
+                                        Vec2::new(CARD_WIDTH, CARD_HEIGHT),
+                                        egui::Sense::click(),
+                                    );
 
-                                        // Draw a card-shaped button.
-                                        let (rect, response) = ui.allocate_exact_size(
-                                            Vec2::new(CARD_WIDTH, CARD_HEIGHT),
-                                            egui::Sense::click(),
-                                        );
+                                    // Background color: subtle hover effect.
+                                    let bg = if response.hovered() {
+                                        egui::Color32::from_rgb(55, 60, 70)
+                                    } else {
+                                        egui::Color32::from_rgb(40, 44, 52)
+                                    };
+                                    let painter = ui.painter();
+                                    let border_color = if response.hovered() {
+                                        egui::Color32::from_rgb(80, 100, 140)
+                                    } else {
+                                        egui::Color32::from_rgb(60, 64, 72)
+                                    };
+                                    painter.rect(
+                                        rect,
+                                        CARD_ROUNDING,
+                                        bg,
+                                        Stroke::new(1.0, border_color),
+                                        egui::StrokeKind::Outside,
+                                    );
 
-                                        if col + 1 < cols {
-                                            ui.add_space(CARD_SPACING);
-                                        }
-
-                                        // Background color: subtle hover effect.
-                                        let bg = if response.hovered() {
-                                            egui::Color32::from_rgb(55, 60, 70)
+                                    // Remove "x" button in the top-right corner.
+                                    // Always allocate the interact region so it
+                                    // blocks clicks from reaching the card beneath.
+                                    let x_size = 20.0;
+                                    let x_rect = Rect::from_min_size(
+                                        Pos2::new(rect.right() - x_size - 2.0, rect.top() + 2.0),
+                                        Vec2::new(x_size, x_size),
+                                    );
+                                    let x_response = ui.interact(
+                                        x_rect,
+                                        egui::Id::new(("remove_project", idx)),
+                                        egui::Sense::click(),
+                                    );
+                                    // Only draw the "x" when the card is hovered.
+                                    if response.hovered() || x_response.hovered() {
+                                        let x_color = if x_response.hovered() {
+                                            egui::Color32::from_rgb(255, 100, 100)
                                         } else {
-                                            egui::Color32::from_rgb(40, 44, 52)
+                                            egui::Color32::from_rgb(160, 100, 100)
                                         };
-                                        let painter = ui.painter();
-                                        let border_color = if response.hovered() {
-                                            egui::Color32::from_rgb(80, 100, 140)
-                                        } else {
-                                            egui::Color32::from_rgb(60, 64, 72)
-                                        };
-                                        painter.rect(
-                                            rect,
-                                            CARD_ROUNDING,
-                                            bg,
-                                            Stroke::new(1.0, border_color),
-                                            egui::StrokeKind::Outside,
-                                        );
-
-                                        // Remove "x" in the top-right corner.
-                                        // Remove "x" button in the top-right corner.
-                                        // Always allocate the interact region so it
-                                        // blocks clicks from reaching the card beneath.
-                                        let x_size = 20.0;
-                                        let x_rect = Rect::from_min_size(
-                                            Pos2::new(
-                                                rect.right() - x_size - 2.0,
-                                                rect.top() + 2.0,
-                                            ),
-                                            Vec2::new(x_size, x_size),
-                                        );
-                                        let x_response = ui.interact(
-                                            x_rect,
-                                            egui::Id::new(("remove_project", idx)),
-                                            egui::Sense::click(),
-                                        );
-                                        // Only draw the "x" when the card is hovered.
-                                        if response.hovered() || x_response.hovered() {
-                                            let x_color = if x_response.hovered() {
-                                                egui::Color32::from_rgb(255, 100, 100)
-                                            } else {
-                                                egui::Color32::from_rgb(160, 100, 100)
-                                            };
-                                            painter.text(
-                                                x_rect.center(),
-                                                egui::Align2::CENTER_CENTER,
-                                                "x",
-                                                egui::FontId::proportional(14.0),
-                                                x_color,
-                                            );
-                                        }
-                                        if x_response.clicked() {
-                                            remove_idx = Some(idx);
-                                        }
-
-                                        // Repo name (large, centered).
-                                        let name_pos = Pos2::new(
-                                            rect.center().x,
-                                            rect.top() + CARD_HEIGHT * 0.35,
-                                        );
                                         painter.text(
-                                            name_pos,
+                                            x_rect.center(),
                                             egui::Align2::CENTER_CENTER,
-                                            &project.name,
-                                            egui::FontId::monospace(14.0),
-                                            egui::Color32::from_rgb(140, 195, 255),
+                                            "x",
+                                            egui::FontId::proportional(14.0),
+                                            x_color,
                                         );
-
-                                        // Path (small, dimmer, below the name).
-                                        // Abbreviate long paths to fit the card.
-                                        let display_path = Self::abbreviate_path(&project.path, 28);
-                                        let path_pos = Pos2::new(
-                                            rect.center().x,
-                                            rect.top() + CARD_HEIGHT * 0.65,
-                                        );
-                                        painter.text(
-                                            path_pos,
-                                            egui::Align2::CENTER_CENTER,
-                                            &display_path,
-                                            egui::FontId::proportional(10.0),
-                                            egui::Color32::from_rgb(120, 120, 130),
-                                        );
-
-                                        if response.clicked()
-                                            && remove_idx.is_none()
-                                            && !x_response.clicked()
-                                        {
-                                            repo_to_open = Some(project.path.clone());
-                                        }
                                     }
-                                });
-                                ui.add_space(CARD_SPACING);
-                            }
-                        });
+                                    if x_response.clicked() {
+                                        remove_idx = Some(idx);
+                                    }
 
-                    if let Some(idx) = remove_idx {
-                        self.project_list.recent.remove(idx);
-                        projects::save(&self.project_list);
-                    }
+                                    // Repo name (large, centered).
+                                    let name_pos =
+                                        Pos2::new(rect.center().x, rect.top() + CARD_HEIGHT * 0.35);
+                                    painter.text(
+                                        name_pos,
+                                        egui::Align2::CENTER_CENTER,
+                                        &project.name,
+                                        egui::FontId::monospace(14.0),
+                                        egui::Color32::from_rgb(140, 195, 255),
+                                    );
+
+                                    // Path (small, dimmer, below the name).
+                                    // Abbreviate long paths to fit the card.
+                                    let display_path = Self::abbreviate_path(&project.path, 28);
+                                    let path_pos =
+                                        Pos2::new(rect.center().x, rect.top() + CARD_HEIGHT * 0.65);
+                                    painter.text(
+                                        path_pos,
+                                        egui::Align2::CENTER_CENTER,
+                                        &display_path,
+                                        egui::FontId::proportional(10.0),
+                                        egui::Color32::from_rgb(120, 120, 130),
+                                    );
+
+                                    if response.clicked()
+                                        && remove_idx.is_none()
+                                        && !x_response.clicked()
+                                    {
+                                        repo_to_open = Some(project.path.clone());
+                                    }
+                                }
+                            });
+                            ui.add_space(CARD_SPACING);
+                        }
+                    });
+
+                if let Some(idx) = remove_idx {
+                    self.project_list.recent.remove(idx);
+                    projects::save(&self.project_list);
                 }
+            }
 
-                // Show status message (e.g. error from a failed open).
-                if let Some(ref msg) = self.status_message {
-                    ui.add_space(12.0);
+            // Show status message (e.g. error from a failed open).
+            if let Some(ref msg) = self.status_message {
+                ui.add_space(12.0);
+                ui.vertical_centered(|ui| {
                     ui.label(
                         egui::RichText::new(msg)
                             .color(egui::Color32::from_rgb(255, 140, 100))
                             .size(13.0),
                     );
-                }
-            });
+                });
+            }
         });
 
         if let Some(path) = repo_to_open {
