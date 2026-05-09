@@ -157,6 +157,7 @@ pub fn load_commits(
     revision: Option<&str>,
     path_filter: Option<&str>,
     extra_shas: &[String],
+    extra_refs: &[String],
 ) -> Result<Vec<Commit>, String> {
     // Use %x00 (null) as field separator and %x01 (SOH) as record separator.
     // These cannot appear in commit messages so parsing is reliable.
@@ -176,6 +177,11 @@ pub fn load_commits(
 
     if show_all {
         real_args.push("--all".into());
+    }
+
+    // Add explicit ref starting points (e.g. connected branches).
+    for r in extra_refs {
+        real_args.push(r.clone());
     }
 
     if let Some(rev) = revision {
@@ -696,6 +702,47 @@ pub fn remote_name_from_url(url: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// List all refs (branches + tags) that share history with HEAD.
+///
+/// Returns ref names suitable for passing to `git log` as starting points.
+/// Orphan branches like `gh-pages` that have no common ancestor with HEAD
+/// are excluded.
+pub fn connected_refs(repo_path: &str) -> Result<Vec<String>, String> {
+    // Get all branch and tag ref names.
+    let output = run_git(
+        repo_path,
+        &[
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "refs/heads/",
+            "refs/remotes/",
+            "refs/tags/",
+        ],
+    )?;
+    let refs: Vec<String> = output
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        // Skip remote HEAD pointers (e.g. origin/HEAD).
+        .filter(|l| !l.ends_with("/HEAD"))
+        .collect();
+
+    if refs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Check each ref for a merge-base with HEAD. If `git merge-base` succeeds,
+    // the ref is connected. If it fails, the ref is an orphan.
+    let mut connected = Vec::new();
+    for r in &refs {
+        let result = run_git(repo_path, &["merge-base", "HEAD", r]);
+        if result.is_ok() {
+            connected.push(r.clone());
+        }
+    }
+    Ok(connected)
 }
 
 /// List all configured remotes.

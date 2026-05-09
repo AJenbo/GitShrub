@@ -306,12 +306,23 @@ impl App {
             std::collections::HashMap::new()
         };
 
+        // When "All branches" is on, find branches connected to HEAD
+        // (sharing a merge-base) and pass them as explicit refs. This
+        // excludes orphan branches like gh-pages that have no shared
+        // history. We don't pass --all to git log.
+        let connected = if self.show_all {
+            git::connected_refs(&self.repo_path).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
         match git::load_commits(
             &self.repo_path,
-            self.show_all,
+            false,
             self.revision.as_deref(),
             self.path_filter.as_deref(),
             &extra_shas,
+            &connected,
         ) {
             Ok(mut commits) => {
                 // Annotate commits with reflog labels where applicable.
@@ -512,7 +523,7 @@ impl App {
                             .floor()
                             .max(1.0) as usize;
                         let grid_width =
-                            cols as f32 * CARD_WIDTH + (cols - 1).max(0) as f32 * CARD_SPACING;
+                            cols as f32 * CARD_WIDTH + (cols - 1) as f32 * CARD_SPACING;
 
                         let projects = &self.project_list.recent;
                         let rows = projects.len().div_ceil(cols);
@@ -522,7 +533,7 @@ impl App {
                             let end = (start + cols).min(projects.len());
                             let cards_this_row = end - start;
                             let row_width = cards_this_row as f32 * CARD_WIDTH
-                                + (cards_this_row - 1).max(0) as f32 * CARD_SPACING;
+                                + (cards_this_row - 1) as f32 * CARD_SPACING;
                             // Use the full grid width for all full rows so they
                             // align, but the actual row width for the last
                             // (partial) row so it centers nicely.
